@@ -1,5 +1,6 @@
 from typing import Any, Optional
 
+from llama_index.core.base.agent.types import TaskStepOutput, TaskStep
 from llama_index.core.bridge.pydantic import model_validator, field_validator
 from llama_index.core.instrumentation.events.base import BaseEvent
 from llama_index.core.chat_engine.types import (
@@ -16,13 +17,13 @@ class AgentRunStepStartEvent(BaseEvent):
 
     Args:
         task_id (str): Task ID.
-        step (Optional[Any]): Task step.
+        step (Optional[TaskStep]): Task step.
         input (Optional[str]): Optional input.
 
     """
 
     task_id: str
-    step: Optional[Any]
+    step: Optional[TaskStep]
     input: Optional[str]
 
     @classmethod
@@ -36,11 +37,11 @@ class AgentRunStepEndEvent(BaseEvent):
     AgentRunStepEndEvent.
 
     Args:
-        step_output (Any): Task step output.
+        step_output (TaskStepOutput): Task step output.
 
     """
 
-    step_output: Any
+    step_output: TaskStepOutput
 
     @classmethod
     def class_name(cls) -> str:

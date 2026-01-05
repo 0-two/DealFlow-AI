@@ -6,7 +6,6 @@ from llama_index.core.base.base_selector import (
     SelectorResult,
     SingleSelection,
 )
-from llama_index.core.program import FunctionCallingProgram
 from llama_index.core.prompts.mixin import PromptDictType
 from llama_index.core.schema import QueryBundle
 from llama_index.core.selectors.llm_selectors import _build_choices_text
@@ -49,8 +48,17 @@ class PydanticSingleSelector(BaseSelector):
         prompt_template_str: str = DEFAULT_SINGLE_PYD_SELECT_PROMPT_TMPL,
         verbose: bool = False,
     ) -> "PydanticSingleSelector":
+        try:
+            from llama_index.program.openai import (
+                OpenAIPydanticProgram,
+            )  # pants: no-infer-dep
+        except ImportError as e:
+            raise ImportError(
+                "`llama-index-program-openai` package is missing. "
+                "Please install using `pip install llama-index-program-openai`."
+            )
         if program is None:
-            program = FunctionCallingProgram.from_defaults(
+            program = OpenAIPydanticProgram.from_defaults(
                 output_cls=SingleSelection,
                 prompt_template_str=prompt_template_str,
                 llm=llm,
@@ -116,8 +124,17 @@ class PydanticMultiSelector(BaseSelector):
         max_outputs: Optional[int] = None,
         verbose: bool = False,
     ) -> "PydanticMultiSelector":
+        try:
+            from llama_index.program.openai import (
+                OpenAIPydanticProgram,
+            )  # pants: no-infer-dep
+        except ImportError as e:
+            raise ImportError(
+                "`llama-index-program-openai` package is missing. "
+                "Please install using `pip install llama-index-program-openai`."
+            )
         if program is None:
-            program = FunctionCallingProgram.from_defaults(
+            program = OpenAIPydanticProgram.from_defaults(
                 output_cls=MultiSelection,
                 prompt_template_str=prompt_template_str,
                 llm=llm,

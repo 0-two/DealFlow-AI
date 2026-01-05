@@ -136,6 +136,39 @@ class VectorStoreService:
                 collections_existing.append("NewsArticle")
                 logger.debug("NewsArticle collection already exists")
             
+            # Startup Collection
+            if not self.client.collections.exists("Startup"):
+                self.client.collections.create(
+                    name="Startup",
+                    properties=[
+                        Property(name="startup_name", data_type=DataType.TEXT),
+                        Property(name="founder_name", data_type=DataType.TEXT),
+                        Property(name="sector", data_type=DataType.TEXT),
+                        Property(name="stage", data_type=DataType.TEXT),
+                        Property(name="location", data_type=DataType.TEXT),
+                        Property(name="funding_amount", data_type=DataType.NUMBER),
+                        Property(name="description", data_type=DataType.TEXT),
+                        Property(name="problem_statement", data_type=DataType.TEXT),
+                        Property(name="solution", data_type=DataType.TEXT),
+                        Property(name="market_size", data_type=DataType.TEXT),
+                        Property(name="business_model", data_type=DataType.TEXT),
+                        Property(name="traction", data_type=DataType.TEXT),
+                        Property(name="team_size", data_type=DataType.NUMBER),
+                        Property(name="revenue", data_type=DataType.NUMBER),
+                        Property(name="content", data_type=DataType.TEXT),
+                        Property(name="pitch_deck_url", data_type=DataType.TEXT),
+                        Property(name="contact_email", data_type=DataType.TEXT),
+                        Property(name="website", data_type=DataType.TEXT),
+                        Property(name="created_date", data_type=DataType.DATE),
+                    ],
+                    vectorizer_config=Configure.Vectorizer.none(),
+                )
+                collections_created.append("Startup")
+                logger.info("Created Startup collection")
+            else:
+                collections_existing.append("Startup")
+                logger.debug("Startup collection already exists")
+            
             if collections_created:
                 logger.info(f"Weaviate collections initialized successfully. Created: {collections_created}")
             if collections_existing:
@@ -322,8 +355,7 @@ class VectorStoreService:
                     query=query,
                     vector=query_vector,
                     limit=limit,
-                    return_metadata=['score'],
-                    where=where_filter
+                    return_metadata=['score']
                 )
                 
                 results = []

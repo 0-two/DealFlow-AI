@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Header from '@/components/Layout/Header';
 import { LanguageCode } from '@/lib/types';
-import { FileText, Building, CheckCircle, Calendar, ExternalLink } from 'lucide-react';
+import { Building, CheckCircle, Calendar, ExternalLink } from 'lucide-react';
 
 interface Policy {
   id: string;
@@ -28,33 +28,35 @@ const SAMPLE_POLICIES: Policy[] = [
     eligibility: [
       'DPIIT recognized startups',
       'Incorporated not more than 2 years ago',
-      'Working towards innovation, development of products, processes, or services',
-      'Should have a business model with high potential of employment generation or wealth creation'
+      'Have an innovative idea',
+      'Need funding for scale-up'
     ],
     benefits: [
-      'Up to ₹20 Lakhs for validation of Proof of Concept',
-      'Up to ₹50 Lakhs for prototype development, product trials, market entry, and commercialization'
-    ],
-    source_url: 'https://www.startupindia.gov.in/content/sih/en/startup-scheme.html'
+      'Seed funding up to ₹5 Crore',
+      'Mentorship and guidance',
+      'Access to incubation facilities',
+      'Networking opportunities'
+    ]
   },
   {
     id: '2',
-    scheme_name: 'BIRAC BioNEST',
-    authority: 'Biotechnology Industry Research Assistance Council',
-    sector: 'Biotech / Healthcare',
-    description: 'Bio-incubator supporting innovative biotech startups with infrastructure, mentorship, and funding support.',
+    scheme_name: 'Pradhan Mantri Mudra Yojana (PMMY)',
+    authority: 'Government of India',
+    sector: 'Micro Enterprises',
+    description: 'Provides loans up to ₹10 Lakhs to non-corporate, non-farm small/micro enterprises.',
     eligibility: [
-      'Biotech and life sciences startups',
-      'Early-stage companies with innovative products',
-      'Teams with strong scientific background'
+      'Indian citizen',
+      'Non-corporate, non-farm enterprise',
+      'Business activity in manufacturing, trading, or services',
+      'Credit facility from banks/financial institutions'
     ],
     benefits: [
-      'State-of-the-art lab infrastructure',
-      'Seed funding up to ₹50 Lakhs',
-      'Mentorship and industry connections',
-      'Access to specialized equipment'
+      'Shishu: Up to ₹50,000',
+      'Kishore: ₹50,001 to ₹5 Lakhs',
+      'Tarun: ₹5,00,001 to ₹10 Lakhs',
+      'No collateral required for loans up to ₹10 Lakhs'
     ],
-    source_url: 'https://birac.nic.in/bionest.php'
+    source_url: 'https://www.mudra.org.in'
   },
   {
     id: '3',
@@ -74,25 +76,6 @@ const SAMPLE_POLICIES: Policy[] = [
     ],
     deadline: '2025-03-31',
     source_url: 'https://elevate.karnataka.gov.in'
-  },
-  {
-    id: '4',
-    scheme_name: 'Pradhan Mantri MUDRA Yojana',
-    authority: 'Government of India',
-    sector: 'Micro Enterprises',
-    description: 'Provides loans to micro and small business units to help them expand.',
-    eligibility: [
-      'Non-corporate, non-farm small/micro enterprises',
-      'Loan requirement up to ₹10 Lakhs',
-      'Income generating activity in manufacturing, trading, or service sector'
-    ],
-    benefits: [
-      'Shishu: Up to ₹50,000',
-      'Kishore: ₹50,001 to ₹5 Lakhs',
-      'Tarun: ₹5,00,001 to ₹10 Lakhs',
-      'No collateral required for loans up to ₹10 Lakhs'
-    ],
-    source_url: 'https://www.mudra.org.in'
   }
 ];
 
@@ -261,9 +244,9 @@ export default function PoliciesPage() {
                       href={selectedPolicy.source_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center justify-center gap-2 w-full py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+                      className="inline-flex items-center gap-2 text-indigo-600 hover:text-indigo-700 font-medium"
                     >
-                      <ExternalLink className="w-5 h-5" />
+                      <ExternalLink className="w-4 h-4" />
                       Visit Official Website
                     </a>
                   )}

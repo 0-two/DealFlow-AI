@@ -23,7 +23,7 @@ backend/
 │   │   ├── settings.py         # Application settings
 │   │   └── constants.py        # Application constants
 │   ├── services/               # Core services
-│   │   ├── translation_service.py
+│   │   ├── indictrans2_service.py
 │   │   ├── embedding_service.py
 │   │   ├── vector_store_service.py
 │   │   ├── llm_service.py

@@ -10,14 +10,17 @@ class Settings(BaseSettings):
     
     # API Keys
     GOOGLE_API_KEY: str
-    BHASHINI_API_KEY: str
-    BHASHINI_USER_ID: str
-    BHASHINI_API_KEY_ULC: str
+    LLAMA_CLOUD_API_KEY: str  # NEW: For LlamaParse
+    HUGGINGFACE_HUB_TOKEN: str  # NEW: For IndicTrans2 models
     GROQ_API_KEY: Optional[str] = None
     TAVILY_API_KEY: str
     WEAVIATE_URL: str
     WEAVIATE_API_KEY: str
     JINA_API_KEY: str
+    
+    # IndicTrans2 Settings (NEW)
+    INDICTRANS2_MODEL_DIR: str = "./models/indictrans2"
+    INDICTRANS2_DEVICE: str = "cuda"  # or "cpu"
 
     # Model Settings
     GEMINI_MODEL: str = "gemini-2.0-flash-exp"

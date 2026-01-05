@@ -2,18 +2,30 @@ fastapi
 uvicorn[standard]
 python-dotenv
 langchain
-langchain-google-genai
+langchain-google-generativeai
 langgraph
 weaviate-client
 google-generativeai
 requests
 pydantic
-pydantic-settings
 python-multipart
 aiohttp
-llama-parse
-PyPDF2
 pandas
 python-jose[cryptography]
 bcrypt
+
+# LlamaParse
+llama-parse
+llama-index
+
+# IndicTrans2 (AI4Bharat)
+torch
+transformers
+sentencepiece
+sacremoses
+indictrans2
+
+# Additional utilities
+PyPDF2
+pillow
 

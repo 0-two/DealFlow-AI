@@ -8,16 +8,16 @@ import logging
 import time
 from datetime import datetime
 from app.config.settings import settings
-from app.api.routes import query, investors, trends, ingest
+from app.api.routes import query, investors, trends, ingest, pitch_deck, investor_thesis
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Startup Funding Intelligence API",
-    description="Multilingual RAG-based startup funding intelligence system",
-    version="1.0.0"
+    title="Bidirectional Funding Intelligence API",
+    description="AI-powered matching platform for founders and investors",
+    version="2.0.0"
 )
 
 # CORS Middleware
@@ -112,18 +112,25 @@ app.include_router(query.router, prefix="/api/query", tags=["Query"])
 app.include_router(investors.router, prefix="/api/investors", tags=["Investors"])
 app.include_router(trends.router, prefix="/api/trends", tags=["Trends"])
 app.include_router(ingest.router, prefix="/api/ingest", tags=["Ingest"])
+app.include_router(pitch_deck.router, prefix="/api/pitch-deck", tags=["Pitch Deck"])
+app.include_router(investor_thesis.router, prefix="/api/investor-thesis", tags=["Investor Thesis"])
 
 
 @app.get("/")
 async def root():
     """Root endpoint"""
-    return {"message": "Startup Funding Intelligence API", "status": "running"}
+    return {
+        "message": "Bidirectional Funding Intelligence API",
+        "status": "running",
+        "version": "2.0.0",
+        "features": ["Founder matching", "Investor matching", "Multilingual support"]
+    }
 
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    return {"status": "healthy", "version": "1.0.0"}
+    return {"status": "healthy", "version": "2.0.0"}
 
 
 if __name__ == "__main__":

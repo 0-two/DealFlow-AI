@@ -6,8 +6,8 @@ import Providers from './providers';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Startup Funding Intelligence',
-  description: 'Multilingual RAG-based startup funding intelligence system for Indian founders',
+  title: 'Funding Intelligence',
+  description: 'AI-powered bidirectional matching platform for founders and investors',
 };
 
 export default function RootLayout({

@@ -6,8 +6,8 @@ import { investorsAPI } from '@/lib/api';
 import InvestorCard from '@/components/Investors/InvestorCard';
 import InvestorSearch from '@/components/Investors/InvestorSearch';
 import Header from '@/components/Layout/Header';
-import { Investor, LanguageCode } from '@/lib/types';
-import { Filter, TrendingUp } from 'lucide-react';
+import { LanguageCode } from '@/lib/types';
+import { Filter } from 'lucide-react';
 
 export default function InvestorsPage() {
   const [selectedLanguage, setSelectedLanguage] = useState<LanguageCode>('en');
@@ -26,7 +26,6 @@ export default function InvestorsPage() {
       stage: filters.stage || undefined,
       limit: 50,
     }),
-    enabled: true,
   });
 
   const filteredInvestors = data?.investors.filter((investor) => {

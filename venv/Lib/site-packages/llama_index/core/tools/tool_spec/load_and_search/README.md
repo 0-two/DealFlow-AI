@@ -14,9 +14,8 @@ Here's an example usage of the LoadAndSearchToolSpec.
 from llama_index.core.tools.tool_spec.load_and_search import (
     LoadAndSearchToolSpec,
 )
-from llama_index.core.agent.workflow import FunctionAgent
+from llama_index.core.agent import OpenAIAgent
 from llama_index.tools.wikipedia.base import WikipediaToolSpec
-from llama_index.llms.openai import OpenAI
 
 wiki_spec = WikipediaToolSpec()
 
@@ -24,12 +23,11 @@ wiki_spec = WikipediaToolSpec()
 tool = wiki_spec.to_tool_list()[1]
 
 # Wrap the tool, splitting into a loader and a reader
-agent = FunctionAgent(
-    tools=LoadAndSearchToolSpec.from_defaults(tool).to_tool_list(),
-    llm=OpenAI(model="gpt-4.1"),
+agent = OpenAIAgent.from_tools(
+    LoadAndSearchToolSpec.from_defaults(tool).to_tool_list(), verbose=True
 )
 
-await agent.run("who is ben affleck married to")
+agent.chat("who is ben affleck married to")
 ```
 
 `load`: Calls the wrapped function and loads the data into an index

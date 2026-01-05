@@ -40,13 +40,21 @@ class LLMService:
 Your role is to provide accurate, actionable insights about investors, funding trends, and government policies.
 
 Guidelines:
-1. Answer ONLY based on the provided context
-2. Cite sources using [Source N] format
-3. Explain complex terms in simple language
-4. Structure answers clearly with bullet points when appropriate
-5. If the context doesn't contain enough information, say "I don't have enough information to answer this accurately"
-6. Always be encouraging and supportive to founders
+1. When context is available, prioritize it and cite sources using [Source N] format
+2. When no context is available, use your general knowledge as a startup and investment expert
+3. Always provide helpful, actionable advice about startups, investors, funding, and financial matters
+4. Explain complex terms in simple language
+5. Structure answers clearly with bullet points when appropriate
+6. Be encouraging and supportive to founders
 7. Provide practical, actionable advice
+8. If you're not sure about something, acknowledge the limitations
+9. If the user asks about something outside your knowledge, politely explain that you don't have specific information about that topic
+10. Provide only answers that are relevant and accurate to the user's query and do not explain topics unrelated to the user's query
+11. Maintain a professional yet approachable tone suitable for startup founders
+12. Keep responses concise but comprehensive
+13. When providing funding advice, consider Indian startup ecosystem specifics
+14. Be aware of Indian regulatory environment and funding landscape
+15. Do not provide citations for general knowledge answers, only when context is explicitly provided
 
 Remember: You're helping founders make informed funding decisions."""
             
@@ -83,38 +91,25 @@ Remember: You're helping founders make informed funding decisions."""
                 "language": language
             }
         
+        # Check for simple conversational queries that don't need detailed responses
+        if self._is_simple_conversational_query(query):
+            logger.info("Detected simple conversational query - providing brief response")
+            return await self._generate_simple_response(query, language)
+        
         if not context or not context.strip():
-            logger.warning("Empty context provided for answer generation")
-            return {
-                "answer": "I don't have enough information to answer this accurately.",
-                "sources": [],
-                "language": language
-            }
+            logger.warning("Empty context provided for answer generation - using general knowledge fallback")
+            # Use general knowledge fallback
+            return await self._generate_general_answer(query, language)
         
         try:
             logger.info(f"Generating answer for query (length: {len(query)})")
             start_time = time.time()
             
-            # Build prompt
+            # Build formatted sources first
             formatted_sources = self._format_sources(sources)
-            prompt = f"""{self.system_prompt}
-
-Context from reliable sources:
-{context}
-
-Sources:
-{formatted_sources}
-
-User Question: {query}
-
-Instructions:
-- Provide a comprehensive answer based on the context
-- Cite sources using [Source 1], [Source 2] format
-- Be specific with numbers, names, and details
-- Structure your answer clearly
-- Use simple language
-
-Answer:"""
+            
+            # Use specialized context-based prompt
+            prompt = self._get_context_based_prompt(context, formatted_sources, query)
             
             logger.debug(f"Prompt length: {len(prompt)} characters")
             
@@ -435,6 +430,263 @@ Sample Deals:
         except Exception as e:
             logger.error(f"Error formatting deals data: {str(e)}")
             return "Error formatting deals data."
+    
+    async def _generate_general_answer(self, query: str, language: str = "en") -> Dict:
+        """Generate answer using general knowledge when no context is available"""
+        try:
+            logger.info(f"Generating general knowledge answer for query: {query[:100]}...")
+            
+            # Use specialized general knowledge prompt
+            general_prompt = self._get_general_knowledge_prompt(query)
+            
+            response = self.model.generate_content(
+                general_prompt,
+                generation_config={
+                    "temperature": 0.7,  # Slightly higher creativity for general answers
+                    "max_output_tokens": settings.MAX_TOKENS,
+                }
+            )
+            
+            answer = response.text.strip()
+            
+            logger.info(f"Generated general answer (length: {len(answer)})")
+            
+            return {
+                "answer": answer,
+                "sources": [],  # No specific sources for general knowledge
+                "language": language,
+                "fallback_used": True  # Flag to indicate general knowledge was used
+            }
+            
+        except Exception as e:
+            logger.error(f"Error generating general answer: {str(e)}")
+            return {
+                "answer": "I apologize, but I'm having trouble generating a response. Please try rephrasing your question or contact support if the issue persists.",
+                "sources": [],
+                "language": language,
+                "error": True
+            }
+    
+    def _is_simple_conversational_query(self, query: str) -> bool:
+        """Detect if query is a simple conversational query that doesn't need detailed responses"""
+        simple_queries = [
+            "hi", "hello", "hey", "good morning", "good afternoon", "good evening",
+            "how are you", "how do you do", "what's up", "what's new",
+            "tell me about yourself", "who are you", "what are you", "what do you do",
+            "thanks", "thank you", "bye", "goodbye", "see you", "see you later",
+            "help", "what can you do", "how can you help me", "what's your purpose"
+        ]
+        
+        query_lower = query.lower().strip()
+        query_lower = query_lower.rstrip('?!.')
+        
+        # Check exact matches
+        if query_lower in simple_queries:
+            return True
+            
+        # Check if query starts with simple greetings
+        for simple_query in simple_queries:
+            if query_lower.startswith(simple_query):
+                return True
+                
+        # Check for very short queries (likely conversational)
+        if len(query_lower.split()) <= 2 and len(query_lower) <= 10:
+            return True
+            
+        return False
+    
+    async def _generate_simple_response(self, query: str, language: str = "en") -> Dict:
+        """Generate brief, appropriate responses for simple conversational queries"""
+        try:
+            query_lower = query.lower().strip()
+            
+            # Greeting responses
+            if any(greeting in query_lower for greeting in ["hi", "hello", "hey", "good morning", "good afternoon", "good evening"]):
+                response = "Hello! I'm your startup funding advisor. I can help you with information about investors, funding options, and government schemes for Indian startups. What would you like to know?"
+            
+            # "How are you" responses
+            elif any(how_query in query_lower for how_query in ["how are you", "how do you do"]):
+                response = "I'm doing great and ready to help! I'm here to assist you with startup funding advice and investor information. How can I help you today?"
+            
+            # "Who are you" responses
+            elif any(who_query in query_lower for who_query in ["who are you", "what are you", "tell me about yourself", "what do you do"]):
+                response = "I'm an expert startup funding advisor specializing in the Indian startup ecosystem. I can help you find investors, understand funding options, and navigate government schemes. Feel free to ask me anything about startup funding!"
+            
+            # "What can you do" responses
+            elif any(help_query in query_lower for help_query in ["what can you do", "how can you help", "what's your purpose", "help"]):
+                response = "I can help you with: • Finding suitable investors for your startup • Understanding funding stages and amounts • Navigating government schemes like Startup India • Analyzing pitch decks • Providing startup ecosystem insights. What would you like to explore?"
+            
+            # "Thanks" responses
+            elif any(thanks_query in query_lower for thanks_query in ["thanks", "thank you"]):
+                response = "You're welcome! I'm here to help with any startup funding questions you might have. Feel free to ask anything else!"
+            
+            # "Goodbye" responses
+            elif any(bye_query in query_lower for bye_query in ["bye", "goodbye", "see you", "see you later"]):
+                response = "Goodbye! Feel free to come back anytime you need startup funding advice. Best of luck with your entrepreneurial journey!"
+            
+            # Default simple response
+            else:
+                response = "Hello! I'm your startup funding advisor. I can help you with investors, funding options, and government schemes for Indian startups. What would you like to know?"
+            
+            logger.info(f"Generated simple response for query: {query[:50]}...")
+            
+            return {
+                "answer": response,
+                "sources": [],
+                "language": language,
+                "response_type": "simple_conversational"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error generating simple response: {str(e)}")
+            return {
+                "answer": "Hello! I'm your startup funding advisor. How can I help you today?",
+                "sources": [],
+                "language": language,
+                "error": True
+            }
+    
+    def _get_context_based_prompt(self, context: str, sources: str, query: str) -> str:
+        """Get enhanced context-based prompt"""
+        return f"""You are an expert startup funding advisor for Indian entrepreneurs with access to specific documents.
+
+Your task is to answer the user's question using ONLY the provided context documents.
+
+Guidelines:
+1. Base your answer ENTIRELY on the provided context
+2. Cite sources using [Source N] format for each piece of information
+3. If multiple documents provide conflicting info, acknowledge and explain
+4. Extract specific details like investor names, funding amounts, dates
+5. Be precise and factual - no speculation beyond the documents
+6. Structure answer with clear sections and bullet points
+7. Include relevant quotes or data points from the documents
+8. Maintain professional yet approachable tone
+9. Keep responses concise but comprehensive
+10. Focus on Indian startup ecosystem specifics
+
+Context Documents:
+{context}
+
+Sources:
+{sources}
+
+User Question: {query}
+
+Provide a comprehensive answer based on these documents:"""
+    
+    def _get_general_knowledge_prompt(self, query: str) -> str:
+        """Get enhanced general knowledge prompt"""
+        return f"""You are an expert startup funding advisor for Indian entrepreneurs.
+
+No specific documents were found for this query. Please provide a helpful answer based on your general knowledge as a startup and investment expert.
+
+Guidelines:
+1. Provide practical, actionable advice for Indian entrepreneurs
+2. Focus on startups, investors, funding, and financial matters
+3. Include Indian startup ecosystem specifics
+4. Mention current trends and best practices
+5. Be encouraging and supportive to founders
+6. Structure answer with clear sections and bullet points
+7. Provide concrete examples and actionable steps
+8. Acknowledge when information is general rather than specific
+9. Maintain professional yet approachable tone
+10. Keep responses concise but comprehensive
+
+User Question: {query}
+
+Please provide a comprehensive, helpful response:"""
+    
+    def _get_multilingual_prompt(self, query: str, language: str) -> str:
+        """Get multilingual prompt for IndicTrans2"""
+        return f"""You are an expert startup funding advisor for Indian entrepreneurs, capable of communicating in multiple Indian languages.
+
+Guidelines:
+1. Respond in the user's preferred language ({language})
+2. Maintain professional yet approachable tone
+3. Use appropriate terminology for the Indian startup ecosystem
+4. Provide culturally relevant examples and advice
+5. Keep language simple and accessible
+6. Focus on practical, actionable guidance
+7. Structure answer with clear sections and bullet points
+8. Include Indian startup ecosystem specifics
+
+User Question: {query}
+
+Please provide helpful advice in {language}:"""
+    
+    def _get_pitch_deck_analysis_prompt(self, content: str) -> str:
+        """Get pitch deck analysis prompt"""
+        return f"""You are an expert venture capitalist and startup advisor analyzing pitch decks.
+
+Your task is to analyze the provided pitch deck content and provide actionable feedback.
+
+Guidelines:
+1. Evaluate business model and value proposition
+2. Assess market opportunity and competitive landscape
+3. Review financial projections and funding requirements
+4. Identify strengths and areas for improvement
+5. Suggest specific investors who might be interested
+6. Provide actionable recommendations for next steps
+7. Structure feedback with clear sections
+8. Be constructive and encouraging
+9. Focus on Indian startup ecosystem context
+10. Provide specific, actionable advice
+
+Pitch Deck Content:
+{content}
+
+Provide comprehensive analysis and recommendations:"""
+    
+    def _get_investor_matching_prompt(self, startup_profile: str, investor_data: str) -> str:
+        """Get investor matching prompt"""
+        return f"""You are an expert startup funding advisor specializing in investor-startup matching.
+
+Your task is to match startups with suitable investors based on their profiles.
+
+Guidelines:
+1. Analyze startup's sector, stage, and funding needs
+2. Consider investor preferences and portfolio
+3. Prioritize investors with relevant domain expertise
+4. Consider geographic alignment
+5. Provide reasoning for each recommendation
+6. Suggest outreach strategies
+7. Structure recommendations with clear rankings
+8. Include specific contact information if available
+9. Focus on Indian startup ecosystem
+10. Provide actionable next steps
+
+Startup Profile:
+{startup_profile}
+
+Available Investors:
+{investor_data}
+
+Provide ranked investor recommendations with reasoning:"""
+    
+    def _get_policy_information_prompt(self, context: str, query: str) -> str:
+        """Get policy information prompt"""
+        return f"""You are an expert on Indian government policies and schemes for startups.
+
+Your task is to provide accurate information about government support programs.
+
+Guidelines:
+1. Provide accurate, up-to-date policy information
+2. Explain eligibility criteria clearly
+3. Detail application processes and timelines
+4. Highlight benefits and limitations
+5. Suggest complementary schemes
+6. Include practical implementation tips
+7. Structure information clearly with sections
+8. Use simple, accessible language
+9. Focus on actionable guidance
+10. Include relevant contact information
+
+Policy Context:
+{context}
+
+User Question: {query}
+
+Provide comprehensive policy guidance:"""
 
 
 # Singleton instance

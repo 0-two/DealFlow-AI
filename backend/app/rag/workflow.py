@@ -4,7 +4,7 @@ RAG Workflow using LangGraph for complete RAG pipeline with multiple services
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, List, Dict, Optional, Any
 import logging
-from app.services.translation_service import translation_service
+from app.services.indictrans2_service import translation_service
 from app.services.vector_store_service import vector_store_service
 from app.services.reranker_service import reranker_service
 from app.services.llm_service import llm_service
@@ -188,6 +188,19 @@ class RAGWorkflow:
             )
             
             state["answer"] = result.get("answer", "No answer generated.")
+            
+            # Add metadata about whether fallback was used
+            if result.get("fallback_used"):
+                state["metadata"] = {
+                    "answer_type": "general_knowledge",
+                    "message": "Answer generated using general knowledge (no specific documents found)"
+                }
+            else:
+                state["metadata"] = {
+                    "answer_type": "context_based",
+                    "documents_used": len(sources)
+                }
+            
             logger.info("Generated answer successfully")
             return state
             
