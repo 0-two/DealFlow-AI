@@ -13,6 +13,10 @@ from app.services.tavily_service import tavily_service
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# Semaphore to limit concurrent heavy operations
+MAX_CONCURRENT_QUERIES = 5
+query_semaphore = asyncio.Semaphore(MAX_CONCURRENT_QUERIES)
+
 
 class QueryRequest(BaseModel):
     """Query request model with validation"""
@@ -102,18 +106,31 @@ async def process_query(request: QueryRequest) -> QueryResponse:
                 detail="Query cannot exceed 1000 characters"
             )
         
-        # Run RAG workflow with timeout
+        # Acquire semaphore to limit concurrent queries
         try:
-            result = await asyncio.wait_for(
-                rag_workflow.run(request.query),
-                timeout=60.0
-            )
+            await asyncio.wait_for(query_semaphore.acquire(), timeout=30.0)
         except asyncio.TimeoutError:
-            logger.error("RAG workflow execution timed out")
             raise HTTPException(
                 status_code=503,
-                detail="Query processing timed out. Please try again."
+                detail="Server is busy. Please try again in a moment."
             )
+        
+        try:
+            # Run RAG workflow with timeout
+            try:
+                result = await asyncio.wait_for(
+                    rag_workflow.run(request.query),
+                    timeout=120.0  # Increased timeout for complex queries
+                )
+            except asyncio.TimeoutError:
+                logger.error("RAG workflow execution timed out")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Query processing timed out. Please try again."
+                )
+        finally:
+            # Always release the semaphore
+            query_semaphore.release()
         
         # Validate result structure
         if not result or not isinstance(result, dict):

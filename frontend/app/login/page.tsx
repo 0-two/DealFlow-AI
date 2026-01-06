@@ -14,12 +14,34 @@ export default function LoginPage() {
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Check if user is already logged in
+  // Check if user is already logged in or has pending role
   useEffect(() => {
-    checkExistingAuth();
+    initializePage();
   }, []);
+
+  const initializePage = async () => {
+    try {
+      // Check for pending role from role-select page
+      const pendingRole = localStorage.getItem('pendingRole') as Role | null;
+      
+      if (pendingRole) {
+        setSelectedRole(pendingRole);
+        setStep('login');
+        // Also set in sessionStorage for OAuth callback
+        sessionStorage.setItem('pendingRole', pendingRole);
+      }
+
+      // Check existing auth
+      await checkExistingAuth();
+    } catch (error) {
+      console.error('Error initializing login page:', error);
+    } finally {
+      setIsInitializing(false);
+    }
+  };
 
   const checkExistingAuth = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -76,7 +98,22 @@ export default function LoginPage() {
   const handleBackToRoleSelect = () => {
     setStep('role-select');
     setSelectedRole(null);
+    // Clear pending role
+    localStorage.removeItem('pendingRole');
+    sessionStorage.removeItem('pendingRole');
   };
+
+  // Show loading while initializing
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-center">
+          <Loader className="w-12 h-12 animate-spin text-indigo-600 mx-auto mb-4" />
+          <p className="text-lg text-gray-700">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (step === 'role-select') {
     return (

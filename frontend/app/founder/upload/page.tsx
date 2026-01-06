@@ -140,12 +140,11 @@ export default function PitchDeckUploadPage() {
             Enter Details Manually
           </button>
         </div>
-
         {!result ? (
           <div className="bg-white rounded-2xl shadow-lg p-8">
             {uploadMode === 'pitch' ? (
               /* Pitch Deck Upload */
-              <div>
+              <>
                 <div className="border-2 border-dashed border-gray-300 rounded-xl p-12 text-center mb-6">
                   {!selectedFile ? (
                     <div>
@@ -181,7 +180,12 @@ export default function PitchDeckUploadPage() {
                         className="text-red-600 hover:text-red-700"
                       >
                         Remove
-                       className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
                     <p className="text-sm text-blue-800 font-medium mb-1">
                       💡 Tip: Fill in key details below
                     </p>
@@ -269,12 +273,6 @@ export default function PitchDeckUploadPage() {
                       placeholder="founder@startup.com"
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
                       required
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="founder@startup.com"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
                     />
                   </div>
 
@@ -290,7 +288,6 @@ export default function PitchDeckUploadPage() {
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
                     />
                   </div>
-                </div>
 
                 <button
                   onClick={handlePitchDeckUpload}
@@ -309,10 +306,11 @@ export default function PitchDeckUploadPage() {
                     </>
                   )}
                 </button>
-              </div>
+              </>
             ) : (
               /* Manual Entry Form */
-              <div className="space-y-4">
+              <>
+                <div className="space-y-4">
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -486,6 +484,7 @@ export default function PitchDeckUploadPage() {
                   )}
                 </button>
               </div>
+            </>
             )}
           </div>
         ) : (
@@ -653,7 +652,7 @@ export default function PitchDeckUploadPage() {
             </button>
           </div>
         )}
-      </main>
+        </main>
     </div>
   );
 }

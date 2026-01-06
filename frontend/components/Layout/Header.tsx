@@ -17,7 +17,7 @@ export default function Header({ selectedLanguage, onLanguageChange }: Props) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
-  const { session, profile, signOut: authSignOut } = useAuth();
+  const { session, profile, signOut: authSignOut, switchRole } = useAuth();
   const { language, changeLanguage, t, isTranslating } = useTranslationContext();
   
   // Use context language if no prop provided
@@ -52,12 +52,11 @@ export default function Header({ selectedLanguage, onLanguageChange }: Props) {
 
   const navItems = getNavItems();
 
-  const handleLogout = async () => {
+  const handleSwitchRole = async () => {
     try {
-      await authSignOut();
-      router.push('/login');
+      await switchRole();
     } catch (error) {
-      console.error('Logout error:', error);
+      console.error('Switch role error:', error);
     }
   };
 
@@ -127,15 +126,15 @@ export default function Header({ selectedLanguage, onLanguageChange }: Props) {
               ))}
             </select>
 
-            {/* Role Badge & Logout */}
+            {/* Role Badge & Switch Role */}
             {userRole && (
               <div className="flex items-center gap-2">
                 <span className="px-3 py-1 bg-purple-100 text-purple-700 text-sm rounded-full font-medium">
                   {userRole === 'founder' ? '👤 Founder' : '💼 Investor'}
                 </span>
                 <button
-                  onClick={handleLogout}
-                  className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  onClick={handleSwitchRole}
+                  className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                   title="Switch Role"
                 >
                   <LogOut className="w-5 h-5" />
@@ -195,15 +194,15 @@ export default function Header({ selectedLanguage, onLanguageChange }: Props) {
               </select>
             </div>
 
-            {/* Mobile Role & Logout */}
+            {/* Mobile Role & Switch Role */}
             {userRole && (
               <div className="flex items-center justify-between px-4 py-2 bg-gray-50 rounded-lg">
                 <span className="text-sm font-medium text-gray-700">
                   {userRole === 'founder' ? '👤 Founder Mode' : '💼 Investor Mode'}
                 </span>
                 <button
-                  onClick={handleLogout}
-                  className="px-3 py-1 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  onClick={handleSwitchRole}
+                  className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                 >
                   Switch Role
                 </button>

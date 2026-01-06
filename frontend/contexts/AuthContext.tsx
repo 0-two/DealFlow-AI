@@ -11,6 +11,7 @@ interface AuthContextType {
   loading: boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  switchRole: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -19,6 +20,7 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   signOut: async () => {},
   refreshProfile: async () => {},
+  switchRole: async () => {},
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -28,19 +30,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session?.user) {
-        loadUserProfile(session.user.id);
-      } else {
+    let isMounted = true;
+
+    // Get initial session with timeout
+    const initAuth = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (!isMounted) return;
+        
+        if (error) {
+          console.error('Error getting session:', error);
+          setLoading(false);
+          return;
+        }
+
+        setSession(session);
+        
+        if (session?.user) {
+          await loadUserProfile(session.user.id);
+        } else {
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error('Error initializing auth:', error);
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    // Set a timeout to prevent infinite loading
+    const timeoutId = setTimeout(() => {
+      if (isMounted && loading) {
+        console.warn('Auth initialization timed out');
         setLoading(false);
       }
-    });
+    }, 5000);
+
+    initAuth();
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        if (!isMounted) return;
+        
         setSession(session);
         
         if (event === 'SIGNED_IN' && session?.user) {
@@ -49,7 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setProfile(null);
           localStorage.removeItem('userRole');
           localStorage.removeItem('userProfile');
-          router.push('/login');
+          // Don't redirect here - let the calling function handle it
         }
         
         setLoading(false);
@@ -57,6 +91,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
 
     return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
       subscription.unsubscribe();
     };
   }, [router]);
@@ -114,8 +150,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setProfile(null);
   };
 
+  const switchRole = async () => {
+    // Clear local storage and sign out completely
+    localStorage.removeItem('userRole');
+    localStorage.removeItem('userProfile');
+    localStorage.removeItem('pendingRole');
+    sessionStorage.removeItem('pendingRole');
+    setProfile(null);
+    setSession(null);
+    // Sign out from Supabase
+    await supabaseSignOut();
+    // Redirect to role select (not login, so they can choose a new role)
+    router.push('/role-select');
+  };
+
   return (
-    <AuthContext.Provider value={{ session, profile, loading, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ session, profile, loading, signOut, refreshProfile, switchRole }}>
       {children}
     </AuthContext.Provider>
   );

@@ -4,8 +4,11 @@ FastAPI Main Application Entry Point
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
 import logging
 import time
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from app.config.settings import settings
 from app.api.routes import query, investors, trends, ingest, pitch_deck, investor_thesis
@@ -14,10 +17,31 @@ from app.api.routes import query, investors, trends, ingest, pitch_deck, investo
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Thread pool for CPU-bound operations (LLM calls, document parsing)
+thread_pool = ThreadPoolExecutor(max_workers=4)
+
+async def run_in_thread(func, *args, **kwargs):
+    """Run a synchronous function in the thread pool to avoid blocking the event loop"""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(thread_pool, lambda: func(*args, **kwargs))
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan handler for startup and shutdown"""
+    # Startup
+    logger.info("Starting up application...")
+    logger.info(f"Thread pool initialized with {thread_pool._max_workers} workers")
+    yield
+    # Shutdown
+    logger.info("Shutting down application...")
+    thread_pool.shutdown(wait=True)
+    logger.info("Thread pool shutdown complete")
+
 app = FastAPI(
     title="Bidirectional Funding Intelligence API",
     description="AI-powered matching platform for founders and investors",
-    version="2.0.0"
+    version="2.0.0",
+    lifespan=lifespan
 )
 
 # CORS Middleware
@@ -28,6 +52,33 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Request timeout and concurrency limiting
+import asyncio
+from asyncio import Semaphore
+
+# Limit concurrent heavy operations (LLM calls, document parsing)
+MAX_CONCURRENT_HEAVY_OPS = 3
+heavy_ops_semaphore = Semaphore(MAX_CONCURRENT_HEAVY_OPS)
+
+async def with_timeout(coro, timeout_seconds: int = 120):
+    """Wrap a coroutine with a timeout"""
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout_seconds)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Request timed out")
+
+async def acquire_heavy_op():
+    """Acquire semaphore for heavy operations"""
+    acquired = await asyncio.wait_for(heavy_ops_semaphore.acquire(), timeout=30)
+    if not acquired:
+        raise HTTPException(status_code=503, detail="Server busy, please try again")
+    return True
+
+def release_heavy_op():
+    """Release semaphore for heavy operations"""
+    heavy_ops_semaphore.release()
 
 
 # Request Logging Middleware
@@ -135,9 +186,18 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
+    import multiprocessing
+    
+    # Calculate optimal workers (2-4 per CPU core for I/O bound apps)
+    workers = min(multiprocessing.cpu_count() * 2, 4)
+    
     uvicorn.run(
         "app.main:app",
         host=settings.HOST,
         port=settings.PORT,
-        reload=settings.DEBUG
+        reload=settings.DEBUG,
+        workers=1 if settings.DEBUG else workers,  # Single worker in debug mode for hot reload
+        timeout_keep_alive=30,
+        limit_concurrency=100,  # Max concurrent connections
+        limit_max_requests=1000,  # Restart worker after N requests to prevent memory leaks
     )

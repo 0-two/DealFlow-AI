@@ -71,6 +71,8 @@ export default function AuthCallbackPage() {
         }
       } else {
         // Create new profile
+        setStatus('Creating your profile...');
+        
         profile = await createUserProfile(
           session.user.id,
           session.user.email!,
@@ -80,7 +82,20 @@ export default function AuthCallbackPage() {
         );
 
         if (!profile) {
-          throw new Error('Failed to create user profile');
+          // Profile creation failed, but user is authenticated
+          // Create a basic profile object for local use
+          console.warn('Profile creation returned null, using fallback');
+          profile = {
+            id: session.user.id,
+            email: session.user.email!,
+            role: pendingRole,
+            full_name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0],
+            created_at: new Date().toISOString(),
+            remember_me: pendingRememberMe,
+            remember_me_expires: pendingRememberMe 
+              ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() 
+              : undefined,
+          };
         }
       }
 
