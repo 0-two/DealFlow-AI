@@ -100,13 +100,25 @@ async def search_investors(
         # Default query if no filters
         query = " ".join(query_parts) if query_parts else "venture capital investors"
         
-        logger.info(f"Searching investors with query: {query}")
+        # Build filters dictionary for Weaviate
+        weaviate_filters = {}
+        if sector:
+            weaviate_filters['sector'] = sector
+        if location:
+            weaviate_filters['location'] = location
+        if stage:
+            weaviate_filters['stage'] = stage
+        if investor_type:
+            weaviate_filters['investor_type'] = investor_type
         
-        # Search vector store
+        logger.info(f"Searching investors with query: {query}, filters: {weaviate_filters}")
+        
+        # Search vector store with filters
         results = await vector_store_service.hybrid_search(
             "Investor",
             query=query,
-            limit=limit
+            limit=limit,
+            filters=weaviate_filters if weaviate_filters else None
         )
         
         if not results:

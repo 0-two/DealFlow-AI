@@ -565,3 +565,72 @@ async def health_check() -> Dict[str, str]:
         logger.error(f"Health check failed: {e}")
         raise HTTPException(status_code=503, detail="Service unavailable")
 
+
+@router.get("/collections")
+async def list_collections() -> Dict[str, Any]:
+    """
+    List all available collections and their info
+    
+    Returns:
+        Dictionary with collection information
+    """
+    try:
+        collections = ["Investor", "FundingDeal", "PolicyDocument", "NewsArticle", "Startup"]
+        result = {}
+        
+        for collection_name in collections:
+            info = vector_store_service.get_collection_info(collection_name)
+            if info:
+                result[collection_name] = info
+            else:
+                result[collection_name] = {"exists": False}
+        
+        return {"collections": result}
+        
+    except Exception as e:
+        logger.error(f"Error listing collections: {e}")
+        raise HTTPException(status_code=500, detail="Error listing collections")
+
+
+@router.post("/collections/{collection_name}/recreate")
+async def recreate_collection(collection_name: str) -> Dict[str, Any]:
+    """
+    Recreate a collection with updated schema.
+    WARNING: This will delete all existing data in the collection!
+    
+    Args:
+        collection_name: Name of the collection to recreate
+        
+    Returns:
+        Status of the operation
+    """
+    try:
+        valid_collections = ["Investor", "FundingDeal", "PolicyDocument", "NewsArticle", "Startup"]
+        
+        if collection_name not in valid_collections:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid collection name. Must be one of: {valid_collections}"
+            )
+        
+        logger.warning(f"Recreating collection: {collection_name}")
+        success = vector_store_service.recreate_collection(collection_name)
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"Collection {collection_name} recreated successfully",
+                "collection": collection_name
+            }
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to recreate collection {collection_name}"
+            )
+            
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Error recreating collection: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+

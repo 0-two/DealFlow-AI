@@ -7,6 +7,13 @@ export interface Message {
   timestamp: Date;
 }
 
+export interface WebSource {
+  title: string;
+  url: string;
+  confidence: number;
+  snippet: string;
+}
+
 export interface Source {
   id: number;
   title: string;
@@ -15,6 +22,9 @@ export interface Source {
   url?: string;
   date?: string;
   score?: number;
+  verified?: boolean;
+  verification_confidence?: number;
+  supporting_web_sources?: WebSource[];
 }
 
 export interface QueryRequest {
@@ -30,6 +40,8 @@ export interface QueryResponse {
   metadata: {
     retrieved_count: number;
     reranked_count: number;
+    verified_sources_count?: number;
+    source_verification_enabled?: boolean;
   };
 }
 

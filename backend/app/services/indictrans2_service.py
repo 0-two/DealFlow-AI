@@ -196,12 +196,24 @@ class IndicTrans2Service:
     def _translate_en_to_indic(self, text: str, target_lang: str) -> str:
         """Translate from English to Indic language"""
         try:
+            # Ensure model is loaded
+            if self.en_indic_model is None:
+                logger.info("En->Indic model not loaded, loading now...")
+                self._load_en_to_indic_model()
+            
+            # Ensure processor is initialized
+            if self.ip is None:
+                logger.info("Initializing IndicProcessor...")
+                self.ip = IndicProcessor(inference=True)
+            
             # Preprocess
+            logger.info(f"Preprocessing text for translation to {target_lang}")
             batch = self.ip.preprocess_batch(
                 [text],
                 src_lang="eng_Latn",
                 tgt_lang=target_lang
             )
+            logger.info(f"Preprocessed batch: {batch}")
             
             # Tokenize
             inputs = self.en_indic_tokenizer(
@@ -224,12 +236,13 @@ class IndicTrans2Service:
                 )
             
             # Decode
-            with self.en_indic_tokenizer.as_target_tokenizer():
-                generated_tokens = self.en_indic_tokenizer.batch_decode(
-                    generated_tokens.detach().cpu().tolist(),
-                    skip_special_tokens=True,
-                    clean_up_tokenization_spaces=True
-                )
+            generated_tokens = self.en_indic_tokenizer.batch_decode(
+                generated_tokens.detach().cpu().tolist(),
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=True
+            )
+            
+            logger.info(f"Raw decoded output: {generated_tokens}")
             
             # Postprocess
             translations = self.ip.postprocess_batch(
@@ -237,21 +250,34 @@ class IndicTrans2Service:
                 lang=target_lang
             )
             
+            logger.info(f"Postprocessed translation: {translations}")
             return translations[0] if translations else text
             
         except Exception as e:
-            logger.error(f"En->Indic translation error: {e}")
+            logger.error(f"En->Indic translation error: {e}", exc_info=True)
             return text
     
     def _translate_indic_to_en(self, text: str, source_lang: str) -> str:
         """Translate from Indic language to English"""
         try:
+            # Ensure model is loaded
+            if self.indic_en_model is None:
+                logger.info("Indic->En model not loaded, loading now...")
+                self._load_indic_to_en_model()
+            
+            # Ensure processor is initialized
+            if self.ip is None:
+                logger.info("Initializing IndicProcessor...")
+                self.ip = IndicProcessor(inference=True)
+            
             # Preprocess
+            logger.info(f"Preprocessing Indic text from {source_lang}")
             batch = self.ip.preprocess_batch(
                 [text],
                 src_lang=source_lang,
                 tgt_lang="eng_Latn"
             )
+            logger.info(f"Preprocessed batch: {batch}")
             
             # Tokenize
             inputs = self.indic_en_tokenizer(
@@ -274,12 +300,13 @@ class IndicTrans2Service:
                 )
             
             # Decode
-            with self.indic_en_tokenizer.as_target_tokenizer():
-                generated_tokens = self.indic_en_tokenizer.batch_decode(
-                    generated_tokens.detach().cpu().tolist(),
-                    skip_special_tokens=True,
-                    clean_up_tokenization_spaces=True
-                )
+            generated_tokens = self.indic_en_tokenizer.batch_decode(
+                generated_tokens.detach().cpu().tolist(),
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=True
+            )
+            
+            logger.info(f"Raw decoded output: {generated_tokens}")
             
             # Postprocess
             translations = self.ip.postprocess_batch(
@@ -287,10 +314,11 @@ class IndicTrans2Service:
                 lang="eng_Latn"
             )
             
+            logger.info(f"Postprocessed translation: {translations}")
             return translations[0] if translations else text
             
         except Exception as e:
-            logger.error(f"Indic->En translation error: {e}")
+            logger.error(f"Indic->En translation error: {e}", exc_info=True)
             return text
     
     async def detect_language(self, text: str) -> str:

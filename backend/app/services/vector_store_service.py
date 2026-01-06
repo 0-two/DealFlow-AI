@@ -62,6 +62,11 @@ class VectorStoreService:
                         Property(name="contact_email", data_type=DataType.TEXT),
                         Property(name="website", data_type=DataType.TEXT),
                         Property(name="portfolio", data_type=DataType.TEXT_ARRAY),
+                        Property(name="investment_thesis", data_type=DataType.TEXT),
+                        Property(name="investment_criteria", data_type=DataType.TEXT),
+                        Property(name="stages", data_type=DataType.TEXT_ARRAY),
+                        Property(name="geographies", data_type=DataType.TEXT_ARRAY),
+                        Property(name="created_date", data_type=DataType.DATE),
                     ],
                     vectorizer_config=Configure.Vectorizer.none(),  # We'll provide vectors
                 )
@@ -184,6 +189,52 @@ class VectorStoreService:
             logger.error(f"Unexpected error initializing collections: {str(e)}", exc_info=True)
             raise
     
+    def recreate_collection(self, collection_name: str) -> bool:
+        """
+        Delete and recreate a collection with updated schema.
+        WARNING: This will delete all existing data in the collection!
+        
+        Args:
+            collection_name: Name of the collection to recreate
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Delete if exists
+            if self.client.collections.exists(collection_name):
+                logger.warning(f"Deleting collection {collection_name} for recreation")
+                self.client.collections.delete(collection_name)
+                logger.info(f"Deleted collection {collection_name}")
+            
+            # Reinitialize collections (will recreate the deleted one)
+            self.initialize_collections()
+            
+            logger.info(f"Successfully recreated collection {collection_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error recreating collection {collection_name}: {str(e)}")
+            return False
+    
+    def get_collection_info(self, collection_name: str) -> Optional[Dict[str, Any]]:
+        """Get information about a collection including property count"""
+        try:
+            if not self.client.collections.exists(collection_name):
+                return None
+            
+            collection = self.client.collections.get(collection_name)
+            config = collection.config.get()
+            
+            return {
+                "name": collection_name,
+                "properties": [p.name for p in config.properties],
+                "property_count": len(config.properties)
+            }
+        except Exception as e:
+            logger.error(f"Error getting collection info: {str(e)}")
+            return None
+    
     async def add_documents(
         self,
         collection_name: str,
@@ -258,8 +309,16 @@ class VectorStoreService:
                 with collection.batch.dynamic() as batch:
                     for idx, (doc, vector) in enumerate(zip(documents, embeddings)):
                         try:
-                            # Remove vector from properties if present
-                            doc_properties = {k: v for k, v in doc.items() if k != "vector"}
+                            # Remove vector and internal fields from properties
+                            doc_properties = {
+                                k: v for k, v in doc.items() 
+                                if k != "vector" and not k.startswith("_") and v is not None
+                            }
+                            
+                            # Log the properties being inserted for debugging
+                            logger.debug(
+                                f"Inserting document {idx} with properties: {list(doc_properties.keys())}"
+                            )
                             
                             batch.add_object(
                                 properties=doc_properties,
@@ -271,7 +330,15 @@ class VectorStoreService:
                             logger.error(
                                 f"Error adding document {idx} to batch: {str(e)}"
                             )
+                            logger.error(f"Document properties were: {doc_properties}")
                             continue
+                
+                # Check for batch errors
+                if hasattr(batch, 'failed_objects') and batch.failed_objects:
+                    for failed_obj in batch.failed_objects:
+                        logger.error(f"Failed object in batch: {failed_obj}")
+                        failed_count += 1
+                        inserted_count -= 1
                 
                 logger.info(
                     f"Batch insert completed for {collection_name}: "
@@ -344,19 +411,58 @@ class VectorStoreService:
             # Build filter if provided
             where_filter = None
             if filters:
-                # TODO: Implement filter logic based on schema
-                # This is a placeholder - implement based on your filter requirements
-                logger.debug(f"Filters provided: {filters} (not yet implemented)")
-                # Example: where_filter = Filter.by_property("sector").equal("Technology")
+                from weaviate.classes.query import Filter
+                filter_conditions = []
+                
+                # Build filter conditions based on provided filters
+                if 'sector' in filters and filters['sector']:
+                    filter_conditions.append(
+                        Filter.by_property("focus_areas").contains_any([filters['sector']])
+                    )
+                
+                if 'location' in filters and filters['location']:
+                    filter_conditions.append(
+                        Filter.by_property("location").like(f"*{filters['location']}*")
+                    )
+                
+                if 'stage' in filters and filters['stage']:
+                    filter_conditions.append(
+                        Filter.by_property("stages").contains_any([filters['stage']])
+                    )
+                
+                if 'investor_type' in filters and filters['investor_type']:
+                    filter_conditions.append(
+                        Filter.by_property("type").like(f"*{filters['investor_type']}*")
+                    )
+                
+                # Combine filters with AND logic
+                if filter_conditions:
+                    if len(filter_conditions) == 1:
+                        where_filter = filter_conditions[0]
+                    else:
+                        where_filter = filter_conditions[0]
+                        for condition in filter_conditions[1:]:
+                            where_filter = where_filter & condition
+                    
+                    logger.debug(f"Applied filters: {filters}")
             
             # Perform hybrid search
             try:
-                response = collection.query.hybrid(
-                    query=query,
-                    vector=query_vector,
-                    limit=limit,
-                    return_metadata=['score']
-                )
+                if where_filter:
+                    response = collection.query.hybrid(
+                        query=query,
+                        vector=query_vector,
+                        limit=limit,
+                        filters=where_filter,
+                        return_metadata=['score']
+                    )
+                else:
+                    response = collection.query.hybrid(
+                        query=query,
+                        vector=query_vector,
+                        limit=limit,
+                        return_metadata=['score']
+                    )
                 
                 results = []
                 for item in response.objects:

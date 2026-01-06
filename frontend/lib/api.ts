@@ -42,6 +42,29 @@ export const investorsAPI = {
   },
 };
 
+export const startupsAPI = {
+  search: async (params: {
+    query: string;
+    focus_sectors?: string;
+    stages?: string;
+    location?: string;
+  }): Promise<{ matches: any[]; query_used?: string }> => {
+    const formData = new FormData();
+    formData.append('query', params.query);
+    formData.append('user_context', JSON.stringify({ role: 'investor' }));
+    if (params.focus_sectors) formData.append('focus_sectors', params.focus_sectors);
+    if (params.stages) formData.append('stages', params.stages);
+    if (params.location) formData.append('location', params.location);
+    
+    const response = await api.post('/api/investor-thesis/find-startups', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+};
+
 export const trendsAPI = {
   getSectorTrends: async (sector: string, year: number) => {
     const response = await api.get('/api/trends/sector', {

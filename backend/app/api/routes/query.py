@@ -8,6 +8,7 @@ import logging
 import asyncio
 
 from app.rag.workflow import rag_workflow
+from app.services.tavily_service import tavily_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -181,6 +182,80 @@ async def ping() -> Dict[str, str]:
     return {"message": "pong"}
 
 
+class TranslateRequest(BaseModel):
+    """Translation request model"""
+    text: str = Field(..., description="Text to translate")
+    target_language: str = Field(..., description="Target language code (hi, ta, te, bn, etc.)")
+
+
+@router.post("/translate")
+async def translate_text(request: TranslateRequest) -> Dict[str, Any]:
+    """
+    Translate text to target language using IndicTrans2 (local model)
+    
+    Args:
+        request: TranslateRequest with text and target language
+        
+    Returns:
+        Translated text
+    """
+    try:
+        text = request.text
+        target_language = request.target_language
+        
+        if target_language == "en":
+            return {"translated_text": text, "source_language": "en", "target_language": "en"}
+        
+        # Map short codes to full language names for IndicTrans2
+        lang_code_map = {
+            "hi": "hindi",
+            "ta": "tamil",
+            "te": "telugu",
+            "kn": "kannada",
+            "bn": "bengali",
+            "mr": "marathi",
+            "gu": "gujarati",
+            "ml": "malayalam",
+            "pa": "punjabi",
+            "or": "odia",
+            "as": "assamese",
+        }
+        
+        # Convert short code to full name
+        target_lang_full = lang_code_map.get(target_language.lower(), target_language)
+        
+        # Use IndicTrans2 service singleton (local model - GPU/CPU)
+        from app.services.indictrans2_service import translation_service as indic_service
+        
+        translated = await indic_service.translate(
+            text=text,
+            source_lang="english",
+            target_lang=target_lang_full
+        )
+        
+        return {
+            "translated_text": translated,
+            "source_language": "en",
+            "target_language": target_language,
+            "model": "IndicTrans2-1B"
+        }
+        
+    except Exception as e:
+        logger.error(f"IndicTrans2 translation error: {e}")
+        # Fallback to Gemini if IndicTrans2 fails
+        try:
+            from app.services.translation_service import translation_service
+            translated = await translation_service.translate(text=text, target_lang=target_language)
+            return {
+                "translated_text": translated,
+                "source_language": "en", 
+                "target_language": target_language,
+                "model": "gemini-fallback"
+            }
+        except:
+            return {"translated_text": request.text, "error": str(e)}
+
+
 @router.post("/validate", response_model=Dict[str, Any])
 async def validate_query(request: QueryRequest) -> Dict[str, Any]:
     """
@@ -205,4 +280,170 @@ async def validate_query(request: QueryRequest) -> Dict[str, Any]:
             status_code=400,
             detail=str(e)
         )
+
+
+# ============ SOURCE VERIFICATION ENDPOINTS ============
+
+class SourceVerificationRequest(BaseModel):
+    """Request to verify a source citation"""
+    claim: str = Field(..., description="The claim or statement to verify")
+    source_title: str = Field(..., description="Title of the source document")
+    source_content: str = Field(..., description="Content snippet from the source")
+
+
+class WebSearchRequest(BaseModel):
+    """Request for web search"""
+    query: str = Field(..., min_length=3, max_length=500, description="Search query")
+    max_results: int = Field(default=5, ge=1, le=10, description="Maximum results to return")
+
+
+class BackgroundCheckRequest(BaseModel):
+    """Request for background check on an entity"""
+    entity_name: str = Field(..., min_length=2, max_length=200, description="Name of the entity")
+    entity_type: str = Field(default="startup", description="Type: startup, investor, company")
+
+
+@router.post("/verify-source", response_model=Dict[str, Any])
+async def verify_source(request: SourceVerificationRequest) -> Dict[str, Any]:
+    """
+    Verify a source citation using Tavily web search
+    
+    Searches the web for corroborating evidence to verify if the
+    source citation is accurate and trustworthy.
+    
+    Args:
+        request: SourceVerificationRequest with claim, title, and content
+        
+    Returns:
+        Verification result with confidence score and supporting sources
+    """
+    try:
+        if not tavily_service.enabled:
+            raise HTTPException(
+                status_code=503,
+                detail="Source verification service is not available. Please configure TAVILY_API_KEY."
+            )
+        
+        logger.info(f"Verifying source: {request.source_title[:50]}...")
+        
+        result = await tavily_service.verify_source(
+            claim=request.claim,
+            source_title=request.source_title,
+            source_content=request.source_content
+        )
+        
+        return {
+            "success": True,
+            "verification": result,
+            "message": "Source verified" if result.get("verified") else "Could not verify source"
+        }
+        
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Source verification error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/web-search", response_model=Dict[str, Any])
+async def web_search(request: WebSearchRequest) -> Dict[str, Any]:
+    """
+    Search the web using Tavily API
+    
+    Performs a web search and returns relevant results that can be
+    used to verify claims or find additional information.
+    
+    Args:
+        request: WebSearchRequest with query and max_results
+        
+    Returns:
+        List of search results with title, url, content, and score
+    """
+    try:
+        if not tavily_service.enabled:
+            raise HTTPException(
+                status_code=503,
+                detail="Web search service is not available. Please configure TAVILY_API_KEY."
+            )
+        
+        logger.info(f"Web search: {request.query[:50]}...")
+        
+        results = await tavily_service.search(
+            query=request.query,
+            max_results=request.max_results
+        )
+        
+        return {
+            "success": True,
+            "query": request.query,
+            "results": results,
+            "count": len(results)
+        }
+        
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Web search error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/background-check", response_model=Dict[str, Any])
+async def background_check(request: BackgroundCheckRequest) -> Dict[str, Any]:
+    """
+    Perform a background check on an entity (startup, investor, etc.)
+    
+    Searches for news, funding information, and potential red flags
+    about the specified entity.
+    
+    Args:
+        request: BackgroundCheckRequest with entity_name and entity_type
+        
+    Returns:
+        Background check results with news, funding info, and warnings
+    """
+    try:
+        if not tavily_service.enabled:
+            raise HTTPException(
+                status_code=503,
+                detail="Background check service is not available. Please configure TAVILY_API_KEY."
+            )
+        
+        logger.info(f"Background check for {request.entity_type}: {request.entity_name}")
+        
+        result = await tavily_service.background_check(
+            entity_name=request.entity_name,
+            entity_type=request.entity_type
+        )
+        
+        return {
+            "success": True,
+            "background_check": result,
+            "message": f"Found {result.get('sources_found', 0)} sources for {request.entity_name}"
+        }
+        
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Background check error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/verification-status")
+async def verification_status() -> Dict[str, Any]:
+    """
+    Check if source verification service is available
+    
+    Returns:
+        Status of the Tavily verification service
+    """
+    return {
+        "enabled": tavily_service.enabled,
+        "service": "Tavily",
+        "features": [
+            "source_verification",
+            "web_search", 
+            "background_check"
+        ] if tavily_service.enabled else [],
+        "message": "Source verification is available" if tavily_service.enabled else "TAVILY_API_KEY not configured"
+    }
 

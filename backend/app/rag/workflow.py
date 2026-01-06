@@ -8,6 +8,7 @@ from app.services.indictrans2_service import translation_service
 from app.services.vector_store_service import vector_store_service
 from app.services.reranker_service import reranker_service
 from app.services.llm_service import llm_service
+from app.services.tavily_service import tavily_service
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ class RAGState(TypedDict):
     answer: Optional[str]
     translated_answer: Optional[str]
     sources: List[Dict[str, Any]]
+    verified_sources: List[Dict[str, Any]]
     metadata: Dict[str, Any]
 
 
@@ -44,6 +46,7 @@ class RAGWorkflow:
         workflow.add_node("translate_query", self.translate_query)
         workflow.add_node("retrieve_docs", self.retrieve_docs)
         workflow.add_node("rerank_docs", self.rerank_docs)
+        workflow.add_node("verify_sources", self.verify_sources)
         workflow.add_node("generate_answer", self.generate_answer)
         workflow.add_node("translate_answer", self.translate_answer)
         
@@ -52,7 +55,8 @@ class RAGWorkflow:
         workflow.add_edge("detect_language", "translate_query")
         workflow.add_edge("translate_query", "retrieve_docs")
         workflow.add_edge("retrieve_docs", "rerank_docs")
-        workflow.add_edge("rerank_docs", "generate_answer")
+        workflow.add_edge("rerank_docs", "verify_sources")
+        workflow.add_edge("verify_sources", "generate_answer")
         workflow.add_edge("generate_answer", "translate_answer")
         workflow.add_edge("translate_answer", END)
         
@@ -142,6 +146,54 @@ class RAGWorkflow:
             state["reranked_docs"] = state["retrieved_docs"][:7]
             return state
     
+    async def verify_sources(self, state: RAGState) -> RAGState:
+        """Verify source citations using Tavily web search"""
+        try:
+            docs = state["reranked_docs"]
+            query = state["translated_query"]
+            
+            if not docs or not tavily_service.enabled:
+                state["verified_sources"] = []
+                return state
+            
+            # Prepare sources for verification
+            sources_to_verify = []
+            for doc in docs[:5]:  # Verify top 5 sources
+                props = doc.get('properties', {})
+                content = props.get('content', '')
+                title = props.get(
+                    'title',
+                    props.get('name', props.get('startup_name', 'Unknown'))
+                )
+                sources_to_verify.append({
+                    "title": title,
+                    "content": content[:500],
+                    "claim": query
+                })
+            
+            # Verify sources in parallel
+            verification_results = await tavily_service.verify_multiple_sources(sources_to_verify)
+            
+            # Merge verification results with sources
+            verified_sources = []
+            for i, result in enumerate(verification_results):
+                if i < len(sources_to_verify):
+                    verified_sources.append({
+                        "source_title": sources_to_verify[i]["title"],
+                        "verified": result.get("verified", False),
+                        "confidence": result.get("confidence", 0),
+                        "supporting_sources": result.get("supporting_sources", [])[:2]
+                    })
+            
+            state["verified_sources"] = verified_sources
+            logger.info(f"Verified {len(verified_sources)} sources")
+            return state
+            
+        except Exception as e:
+            logger.error(f"Source verification error: {e}")
+            state["verified_sources"] = []
+            return state
+    
     async def generate_answer(self, state: RAGState) -> RAGState:
         """Generate answer using LLM with retrieved context"""
         try:
@@ -172,8 +224,20 @@ class RAGWorkflow:
                     "title": source_title,
                     "snippet": snippet,
                     "type": doc.get('collection', 'document'),
-                    "score": doc.get('rerank_score', doc.get('score', 0))
+                    "score": doc.get('rerank_score', doc.get('score', 0)),
+                    "verified": False,
+                    "verification_confidence": 0
                 })
+            
+            # Add verification info to sources
+            verified_sources = state.get("verified_sources", [])
+            for source in sources:
+                for verified in verified_sources:
+                    if source["title"] == verified.get("source_title"):
+                        source["verified"] = verified.get("verified", False)
+                        source["verification_confidence"] = verified.get("confidence", 0)
+                        source["supporting_web_sources"] = verified.get("supporting_sources", [])
+                        break
             
             context = "\n".join(context_parts) if context_parts else ""
             state["context"] = context
@@ -255,11 +319,18 @@ class RAGWorkflow:
                 "answer": None,
                 "translated_answer": None,
                 "sources": [],
+                "verified_sources": [],
                 "metadata": {}
             }
             
             # Execute workflow
             result = await self.graph.ainvoke(initial_state)
+            
+            # Count verified sources
+            verified_count = sum(
+                1 for s in result["sources"] 
+                if s.get("verified", False)
+            )
             
             return {
                 "answer": result["translated_answer"],
@@ -267,7 +338,9 @@ class RAGWorkflow:
                 "language": result["detected_language"],
                 "metadata": {
                     "retrieved_count": len(result["retrieved_docs"]),
-                    "reranked_count": len(result["reranked_docs"])
+                    "reranked_count": len(result["reranked_docs"]),
+                    "verified_sources_count": verified_count,
+                    "source_verification_enabled": tavily_service.enabled
                 }
             }
         except Exception as e:

@@ -2,30 +2,33 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { LanguageCode, LANGUAGES } from '@/lib/types';
-import { Menu, X, Sparkles, LogOut } from 'lucide-react';
+import { Menu, X, Sparkles, LogOut, Loader, Globe } from 'lucide-react';
+import { useTranslationContext } from '@/contexts/TranslationContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface Props {
-  selectedLanguage: LanguageCode;
-  onLanguageChange: (lang: LanguageCode) => void;
+  selectedLanguage?: LanguageCode;
+  onLanguageChange?: (lang: LanguageCode) => void;
 }
 
 export default function Header({ selectedLanguage, onLanguageChange }: Props) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const pathname = usePathname();
-  const [userRole, setUserRole] = useState<'founder' | 'investor' | null>(null);
+  const router = useRouter();
+  const { session, profile, signOut: authSignOut } = useAuth();
+  const { language, changeLanguage, t, isTranslating } = useTranslationContext();
+  
+  // Use context language if no prop provided
+  const currentLang = selectedLanguage || language;
 
-  useEffect(() => {
-    const role = localStorage.getItem('userRole') as 'founder' | 'investor' | null;
-    setUserRole(role);
-  }, []);
+  const userRole = profile?.role;
 
   // Navigation items based on role
   const getNavItems = () => {
     const commonItems = [
-      { name: 'Chat', path: '/' },
-      { name: 'Investors', path: '/investors' },
+      { name: t('nav.ai_chat') || 'Chat', path: '/chat' },
       { name: 'Trends', path: '/trends' },
       { name: 'Policies', path: '/policies' },
     ];
@@ -33,20 +36,41 @@ export default function Header({ selectedLanguage, onLanguageChange }: Props) {
     const roleSpecificItems = [];
     
     if (userRole === 'founder') {
-      roleSpecificItems.push({ name: 'Upload Pitch', path: '/founder/upload' });
+      roleSpecificItems.push(
+        { name: 'Upload Pitch', path: '/founder/upload' },
+        { name: 'Investors', path: '/investors' }
+      );
     } else if (userRole === 'investor') {
-      roleSpecificItems.push({ name: 'My Thesis', path: '/investor/thesis' });
+      roleSpecificItems.push(
+        { name: 'My Thesis', path: '/investor/thesis' },
+        { name: 'Startups', path: '/startups' }
+      );
     }
 
-    return [...commonItems, ...roleSpecificItems];
+    return [...roleSpecificItems, ...commonItems];
   };
 
   const navItems = getNavItems();
 
-  const handleLogout = () => {
-    localStorage.removeItem('userRole');
-    setUserRole(null);
-    window.location.href = '/role-select';
+  const handleLogout = async () => {
+    try {
+      await authSignOut();
+      router.push('/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
+
+  const handleLanguageChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newLang = e.target.value as LanguageCode;
+    
+    // Call context handler
+    await changeLanguage(newLang);
+    
+    // Also call prop handler if provided
+    if (onLanguageChange) {
+      onLanguageChange(newLang);
+    }
   };
 
   return (
@@ -83,11 +107,18 @@ export default function Header({ selectedLanguage, onLanguageChange }: Props) {
 
           {/* Right side - Language & Logout */}
           <div className="hidden md:flex items-center gap-3">
+            {/* Translation Loading Indicator */}
+            {isTranslating && (
+              <Loader className="w-4 h-4 animate-spin text-indigo-600" />
+            )}
+            
             {/* Language Selector */}
+            <Globe className="w-5 h-5 text-gray-500" />
             <select
-              value={selectedLanguage}
-              onChange={(e) => onLanguageChange(e.target.value as LanguageCode)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none text-sm"
+              value={currentLang}
+              onChange={handleLanguageChange}
+              disabled={isTranslating}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none text-sm disabled:opacity-50"
             >
               {Object.entries(LANGUAGES).map(([code, name]) => (
                 <option key={code} value={code}>
@@ -146,17 +177,23 @@ export default function Header({ selectedLanguage, onLanguageChange }: Props) {
             </nav>
 
             {/* Mobile Language Selector */}
-            <select
-              value={selectedLanguage}
-              onChange={(e) => onLanguageChange(e.target.value as LanguageCode)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none mb-3"
-            >
-              {Object.entries(LANGUAGES).map(([code, name]) => (
-                <option key={code} value={code}>
-                  {name}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-2 mb-3">
+              {isTranslating && (
+                <Loader className="w-4 h-4 animate-spin text-indigo-600" />
+              )}
+              <select
+                value={currentLang}
+                onChange={handleLanguageChange}
+                disabled={isTranslating}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none disabled:opacity-50"
+              >
+                {Object.entries(LANGUAGES).map(([code, name]) => (
+                  <option key={code} value={code}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             {/* Mobile Role & Logout */}
             {userRole && (

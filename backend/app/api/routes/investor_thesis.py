@@ -1,11 +1,16 @@
 from fastapi import APIRouter, Form, HTTPException
 from app.services.vector_store_service import vector_store_service
 from app.services.matching_service import matching_service
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import json
 
 logger = logging.getLogger(__name__)
+
+
+def get_rfc3339_timestamp() -> str:
+    """Get current timestamp in RFC 3339 format for Weaviate DATE fields"""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 router = APIRouter()
 
@@ -43,8 +48,8 @@ async def upload_investor_thesis(
             "type": "Venture Capital",  # Can be made dynamic
             "focus_areas": focus_sectors_list,
             "location": geographies_list[0] if geographies_list else "India",
-            "ticket_size_min": ticket_size_min,
-            "ticket_size_max": ticket_size_max,
+            "ticket_size_min": float(ticket_size_min),
+            "ticket_size_max": float(ticket_size_max),
             "investment_thesis": investment_thesis,
             "investment_criteria": investment_criteria or "Not specified",
             "stages": stages_list,
@@ -52,7 +57,7 @@ async def upload_investor_thesis(
             "portfolio": portfolio_list,
             "contact_email": contact_email,
             "website": website,
-            "created_date": datetime.now().isoformat(),
+            "created_date": get_rfc3339_timestamp(),
             "content": f"{investor_name} | {' '.join(focus_sectors_list)} | {investment_thesis} | {' '.join(stages_list)} | {' '.join(geographies_list)} | Ticket: ₹{ticket_size_min}-{ticket_size_max}Cr"
         }
         
@@ -64,11 +69,19 @@ async def upload_investor_thesis(
         )
         
         # Store/Update in vector database
-        await vector_store_service.add_documents(
+        logger.info(f"Storing investor thesis: {investor_name}")
+        storage_success = await vector_store_service.add_documents(
             "Investor",
             [investor_data],
             generate_embeddings=True
         )
+        
+        if not storage_success:
+            logger.error(f"Failed to store investor in Weaviate: {investor_name}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to store investor data in vector database. Please try again."
+            )
         
         # Find matching startups
         logger.info("Finding matching startups...")

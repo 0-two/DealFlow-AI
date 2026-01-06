@@ -14,6 +14,14 @@ export default function PitchDeckUploadPage() {
   const [website, setWebsite] = useState('');
   const [uploadMode, setUploadMode] = useState<'pitch' | 'manual'>('pitch');
 
+  // Additional fields for pitch deck upload
+  const [pitchDeckData, setPitchDeckData] = useState({
+    sector: '',
+    stage: '',
+    location: '',
+    funding_amount: '',
+  });
+
   // Manual form fields
   const [manualData, setManualData] = useState({
     startup_name: '',
@@ -73,6 +81,12 @@ export default function PitchDeckUploadPage() {
     formData.append('user_context', JSON.stringify({ role: 'founder' }));
     formData.append('contact_email', email);
     formData.append('website', website);
+    
+    // Add optional override fields
+    if (pitchDeckData.sector) formData.append('sector', pitchDeckData.sector);
+    if (pitchDeckData.stage) formData.append('stage', pitchDeckData.stage);
+    if (pitchDeckData.location) formData.append('location', pitchDeckData.location);
+    if (pitchDeckData.funding_amount) formData.append('funding_amount', pitchDeckData.funding_amount);
 
     uploadMutation.mutate(formData);
   };
@@ -167,16 +181,94 @@ export default function PitchDeckUploadPage() {
                         className="text-red-600 hover:text-red-700"
                       >
                         Remove
-                      </button>
-                    </div>
-                  )}
-                </div>
+                       className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                    <p className="text-sm text-blue-800 font-medium mb-1">
+                      💡 Tip: Fill in key details below
+                    </p>
+                    <p className="text-xs text-blue-600">
+                      AI will extract info from your PDF, but you can provide or override key details here to ensure accuracy
+                    </p>
+                  </div>
 
-                <div className="space-y-4 mb-6">
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Sector
+                      </label>
+                      <select
+                        value={pitchDeckData.sector}
+                        onChange={(e) => setPitchDeckData({ ...pitchDeckData, sector: e.target.value })}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                      >
+                        <option value="">Auto-detect from PDF</option>
+                        <option value="Fintech">Fintech</option>
+                        <option value="Edtech">Edtech</option>
+                        <option value="Healthtech">Healthtech</option>
+                        <option value="E-commerce">E-commerce</option>
+                        <option value="SaaS">SaaS</option>
+                        <option value="AI/ML">AI/ML</option>
+                        <option value="Agritech">Agritech</option>
+                        <option value="Logistics">Logistics</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Stage
+                      </label>
+                      <select
+                        value={pitchDeckData.stage}
+                        onChange={(e) => setPitchDeckData({ ...pitchDeckData, stage: e.target.value })}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                      >
+                        <option value="">Auto-detect from PDF</option>
+                        <option value="Pre-Seed">Pre-Seed</option>
+                        <option value="Seed">Seed</option>
+                        <option value="Series A">Series A</option>
+                        <option value="Series B">Series B</option>
+                        <option value="Series C">Series C</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Location
+                      </label>
+                      <input
+                        type="text"
+                        value={pitchDeckData.location}
+                        onChange={(e) => setPitchDeckData({ ...pitchDeckData, location: e.target.value })}
+                        placeholder="e.g., Bangalore, Mumbai"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Funding Amount (₹ Crores)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={pitchDeckData.funding_amount}
+                        onChange={(e) => setPitchDeckData({ ...pitchDeckData, funding_amount: e.target.value })}
+                        placeholder="e.g., 5"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                    </div>
+                  </div>
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Contact Email
+                      Contact Email *
                     </label>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="founder@startup.com"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                      required
                     <input
                       type="email"
                       value={email}
