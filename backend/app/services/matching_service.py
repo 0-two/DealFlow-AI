@@ -12,9 +12,18 @@ class MatchingService:
     async def match_investors_for_startup(
         self,
         startup_profile: Dict,
-        top_k: int = 10
+        top_k: int = 10,
+        use_reranker: bool = False,
+        generate_reasoning: bool = False
     ) -> Dict:
-        """Find best matching investors for a startup"""
+        """Find best matching investors for a startup
+        
+        Args:
+            startup_profile: Startup profile dict
+            top_k: Number of results to return
+            use_reranker: Whether to use Jina reranker (True for chatbot, False for browse pages)
+            generate_reasoning: Whether to generate AI reasoning (False for browse, True for personalized)
+        """
         try:
             # Build search query from startup profile
             query = self._build_startup_search_query(startup_profile)
@@ -23,7 +32,7 @@ class MatchingService:
             investors = await vector_store_service.hybrid_search(
                 "Investor",
                 query=query,
-                limit=30
+                limit=top_k if not use_reranker else 30
             )
             
             if not investors:
@@ -32,20 +41,39 @@ class MatchingService:
                     "reasoning": "No matching investors found. Try adjusting your profile or sector."
                 }
             
-            # Rerank based on relevance
-            reranked = await reranker_service.rerank(query, investors, top_k=top_k)
+            # Rerank only if enabled (for chatbot use)
+            if use_reranker:
+                results = await reranker_service.rerank(query, investors, top_k=top_k)
+            else:
+                # Use hybrid search results directly (already ranked by Weaviate)
+                results = investors[:top_k]
             
-            # Generate AI reasoning for each match
-            matches_with_reasoning = await self._generate_match_reasoning(
-                startup_profile,
-                reranked,
-                "investor"
-            )
-            
-            return {
-                "matches": matches_with_reasoning,
-                "query_used": query
-            }
+            # Generate AI reasoning only if requested
+            if generate_reasoning:
+                matches_with_reasoning = await self._generate_match_reasoning(
+                    startup_profile,
+                    results,
+                    "investor"
+                )
+                return {
+                    "matches": matches_with_reasoning,
+                    "query_used": query
+                }
+            else:
+                # Return matches without AI reasoning (fast for browse)
+                matches = []
+                for match in results:
+                    props = match.get("properties", {})
+                    matches.append({
+                        "profile": props,
+                        "match_score": match.get("rerank_score", match.get("score", 0)),
+                        "reasoning": None,
+                        "source": {"type": "database", "collection": "Investor"}
+                    })
+                return {
+                    "matches": matches,
+                    "query_used": query
+                }
             
         except Exception as e:
             logger.error(f"Error matching investors: {e}")
@@ -54,9 +82,18 @@ class MatchingService:
     async def match_startups_for_investor(
         self,
         investor_profile: Dict,
-        top_k: int = 10
+        top_k: int = 10,
+        use_reranker: bool = False,
+        generate_reasoning: bool = False
     ) -> Dict:
-        """Find best matching startups for an investor"""
+        """Find best matching startups for an investor
+        
+        Args:
+            investor_profile: Investor profile dict
+            top_k: Number of results to return
+            use_reranker: Whether to use Jina reranker (True for chatbot, False for browse pages)
+            generate_reasoning: Whether to generate AI reasoning (False for browse, True for personalized)
+        """
         try:
             # Build search query from investor thesis
             query = self._build_investor_search_query(investor_profile)
@@ -65,7 +102,7 @@ class MatchingService:
             startups = await vector_store_service.hybrid_search(
                 "Startup",
                 query=query,
-                limit=30
+                limit=top_k if not use_reranker else 30
             )
             
             if not startups:
@@ -74,20 +111,39 @@ class MatchingService:
                     "reasoning": "No matching startups found. Try adjusting your thesis or criteria."
                 }
             
-            # Rerank based on relevance
-            reranked = await reranker_service.rerank(query, startups, top_k=top_k)
+            # Rerank only if enabled (for chatbot use)
+            if use_reranker:
+                results = await reranker_service.rerank(query, startups, top_k=top_k)
+            else:
+                # Use hybrid search results directly (already ranked by Weaviate)
+                results = startups[:top_k]
             
-            # Generate AI reasoning for each match
-            matches_with_reasoning = await self._generate_match_reasoning(
-                investor_profile,
-                reranked,
-                "startup"
-            )
-            
-            return {
-                "matches": matches_with_reasoning,
-                "query_used": query
-            }
+            # Generate AI reasoning only if requested
+            if generate_reasoning:
+                matches_with_reasoning = await self._generate_match_reasoning(
+                    investor_profile,
+                    results,
+                    "startup"
+                )
+                return {
+                    "matches": matches_with_reasoning,
+                    "query_used": query
+                }
+            else:
+                # Return matches without AI reasoning (fast for browse)
+                matches = []
+                for match in results:
+                    props = match.get("properties", {})
+                    matches.append({
+                        "profile": props,
+                        "match_score": match.get("rerank_score", match.get("score", 0)),
+                        "reasoning": None,
+                        "source": {"type": "database", "collection": "Startup"}
+                    })
+                return {
+                    "matches": matches,
+                    "query_used": query
+                }
             
         except Exception as e:
             logger.error(f"Error matching startups: {e}")

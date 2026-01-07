@@ -1,5 +1,6 @@
 """
-LLM Service for Gemini integration with comprehensive error handling
+Enhanced LLM Service with Intelligent Hybrid RAG
+Combines document retrieval with general knowledge for better responses
 """
 import google.generativeai as genai
 from typing import List, Dict, Optional
@@ -7,14 +8,13 @@ import logging
 import asyncio
 import time
 from app.config.settings import settings
-from app.config.constants import GEMINI_SYSTEM_PROMPTS
-from app.utils.logger import setup_logger
+from typing import AsyncIterator
 
-logger = setup_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class LLMService:
-    """Service for interacting with Gemini LLM"""
+    """Enhanced service for intelligent LLM interactions"""
     
     def __init__(self):
         """Initialize LLM service with Gemini model"""
@@ -29,36 +29,13 @@ class LLMService:
             self.model = genai.GenerativeModel(
                 model_name=settings.GEMINI_MODEL,
                 generation_config={
-                    "temperature": settings.TEMPERATURE,
+                    "temperature": 0.4,  # Balanced between accuracy and creativity
                     "max_output_tokens": settings.MAX_TOKENS,
-                    "top_p": 0.8,
+                    "top_p": 0.9,
                 }
             )
             
-            # Default system prompt for startup funding advisor
-            self.system_prompt = """You are an expert startup funding advisor for Indian entrepreneurs. 
-Your role is to provide accurate, actionable insights about investors, funding trends, and government policies.
-
-Guidelines:
-1. When context is available, prioritize it and cite sources using [Source N] format
-2. When no context is available, use your general knowledge as a startup and investment expert
-3. Always provide helpful, actionable advice about startups, investors, funding, and financial matters
-4. Explain complex terms in simple language
-5. Structure answers clearly with bullet points when appropriate
-6. Be encouraging and supportive to founders
-7. Provide practical, actionable advice
-8. If you're not sure about something, acknowledge the limitations
-9. If the user asks about something outside your knowledge, politely explain that you don't have specific information about that topic
-10. Provide only answers that are relevant and accurate to the user's query and do not explain topics unrelated to the user's query
-11. Maintain a professional yet approachable tone suitable for startup founders
-12. Keep responses concise but comprehensive
-13. When providing funding advice, consider Indian startup ecosystem specifics
-14. Be aware of Indian regulatory environment and funding landscape
-15. Do not provide citations for general knowledge answers, only when context is explicitly provided
-
-Remember: You're helping founders make informed funding decisions."""
-            
-            logger.info("LLM service initialized successfully")
+            logger.info("✅ LLM service initialized successfully")
             
         except Exception as e:
             logger.error(f"Error initializing LLM service: {str(e)}", exc_info=True)
@@ -72,626 +49,582 @@ Remember: You're helping founders make informed funding decisions."""
         language: str = "en"
     ) -> Dict:
         """
-        Generate answer using Gemini with context
-        
-        Args:
-            query: User query/question
-            context: Context text from retrieved documents
-            sources: List of source dictionaries
-            language: Response language (default: "en")
-            
-        Returns:
-            Dictionary with answer, sources, and language
+        Generate intelligent answer using hybrid approach:
+        - Use retrieved documents if relevant
+        - Fall back to general knowledge if documents insufficient
+        - Combine both for best answer
         """
         if not query or not query.strip():
-            logger.warning("Empty query provided for answer generation")
             return {
                 "answer": "Please provide a valid question.",
                 "sources": [],
                 "language": language
             }
         
-        # Check for simple conversational queries that don't need detailed responses
+        # Handle simple conversational queries
         if self._is_simple_conversational_query(query):
-            logger.info("Detected simple conversational query - providing brief response")
+            logger.info("Simple conversational query detected")
             return await self._generate_simple_response(query, language)
         
+        try:
+            logger.info(f"Processing query: {query[:100]}...")
+            start_time = time.time()
+            
+            # Check context relevance
+            context_quality = self._assess_context_quality(query, context, sources)
+            
+            logger.info(f"Context quality score: {context_quality}/10")
+            
+            # Choose response strategy based on context quality
+            if context_quality >= 7:
+                # High quality context - use pure RAG
+                logger.info("Using RAG mode (high quality context)")
+                result = await self._generate_rag_answer(query, context, sources, language)
+            
+            elif context_quality >= 4:
+                # Medium quality - hybrid mode
+                logger.info("Using HYBRID mode (medium quality context)")
+                result = await self._generate_hybrid_answer(query, context, sources, language)
+            
+            else:
+                # Low quality context - use general knowledge
+                logger.info("Using GENERAL KNOWLEDGE mode (low quality context)")
+                result = await self._generate_general_answer(query, language)
+            
+            processing_time = time.time() - start_time
+            logger.info(f"✅ Answer generated in {processing_time:.2f}s")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error generating answer: {str(e)}", exc_info=True)
+            return {
+                "answer": "I encountered an error. Please try rephrasing your question.",
+                "sources": [],
+                "language": language
+            }
+    
+    def _assess_context_quality(self, query: str, context: str, sources: List[Dict]) -> int:
+        """
+        Assess if retrieved context is relevant to the query
+        Returns score 0-10
+        """
         if not context or not context.strip():
-            logger.warning("Empty context provided for answer generation - using general knowledge fallback")
-            # Use general knowledge fallback
-            return await self._generate_general_answer(query, language)
+            return 0
+        
+        if not sources or len(sources) == 0:
+            return 0
+        
+        # Extract key terms from query
+        query_lower = query.lower()
+        key_terms = []
+        
+        # Indian startup ecosystem keywords
+        funding_terms = ['investor', 'vc', 'angel', 'funding', 'series', 'seed', 'capital', 
+                        'investment', 'raise', 'funds', 'pitch', 'valuation', 'equity']
+        
+        sector_terms = ['fintech', 'edtech', 'healthtech', 'saas', 'ecommerce', 'startup',
+                       'technology', 'software', 'platform', 'app', 'digital']
+        
+        india_terms = ['india', 'indian', 'bangalore', 'mumbai', 'delhi', 'hyderabad',
+                      'rupees', 'crore', 'lakh', 'dpiit', 'startup india']
+        
+        # Check for relevant terms in query
+        for term in funding_terms + sector_terms + india_terms:
+            if term in query_lower:
+                key_terms.append(term)
+        
+        if not key_terms:
+            # Generic query - medium relevance
+            return 5
+        
+        # Check how many key terms appear in context
+        context_lower = context.lower()
+        matches = sum(1 for term in key_terms if term in context_lower)
+        
+        # Check source quality
+        irrelevant_indicators = ['zoom', 'zillionize', 'telecommunications', 'tmt']
+        has_irrelevant = any(ind in context_lower for ind in irrelevant_indicators)
+        
+        # Calculate score
+        if has_irrelevant and matches < len(key_terms) * 0.3:
+            # Mostly irrelevant sources
+            return 2
+        
+        match_ratio = matches / len(key_terms) if key_terms else 0
+        base_score = int(match_ratio * 10)
+        
+        # Bonus for having multiple relevant sources
+        if len(sources) >= 3 and matches >= len(key_terms) * 0.5:
+            base_score += 2
+        
+        return min(base_score, 10)
+    
+    async def _generate_rag_answer(
+        self,
+        query: str,
+        context: str,
+        sources: List[Dict],
+        language: str
+    ) -> Dict:
+        """Generate answer using pure RAG (high quality context)"""
+        
+        formatted_sources = self._format_sources(sources)
+        
+        prompt = f"""You are an expert startup funding advisor with deep knowledge of the Indian startup ecosystem.
+
+**TASK**: Answer the user's question using the provided context documents. Be accurate and cite sources.
+
+**CONTEXT FROM DOCUMENTS**:
+{context}
+
+**SOURCES**:
+{formatted_sources}
+
+**USER QUESTION**: {query}
+
+**INSTRUCTIONS**:
+1. Answer based primarily on the provided context
+2. Cite specific sources using [Source N] format
+3. Extract concrete details: names, amounts, dates, sectors
+4. If context doesn't fully answer, supplement with your knowledge of Indian startup ecosystem
+5. Be direct and actionable
+6. Include practical next steps for founders
+
+**YOUR ANSWER** (cite sources for specific facts):"""
         
         try:
-            logger.info(f"Generating answer for query (length: {len(query)})")
-            start_time = time.time()
-            
-            # Build formatted sources first
-            formatted_sources = self._format_sources(sources)
-            
-            # Use specialized context-based prompt
-            prompt = self._get_context_based_prompt(context, formatted_sources, query)
-            
-            logger.debug(f"Prompt length: {len(prompt)} characters")
-            
-            # Generate response (run in executor to avoid blocking)
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: self.model.generate_content(prompt)
-            )
-            
-            # Extract answer
-            if not response:
-                logger.error("Empty response from Gemini API")
-                raise ValueError("Empty response from API")
-            
-            answer = response.text if hasattr(response, 'text') and response.text else "I couldn't generate an answer."
-            
-            if not answer or len(answer.strip()) == 0:
-                logger.warning("Generated answer is empty")
-                answer = "I couldn't generate an answer. Please try again."
-            
-            # Parse citations
-            cited_sources = self._extract_citations(answer, sources)
-            
-            processing_time = time.time() - start_time
-            logger.info(
-                f"Answer generated successfully in {processing_time:.3f}s "
-                f"(answer length: {len(answer)}, sources cited: {len(cited_sources)})"
-            )
+            response = await self._call_gemini(prompt)
+            cited_sources = self._extract_citations(response, sources)
             
             return {
-                "answer": answer,
+                "answer": response,
                 "sources": cited_sources,
-                "language": language
-            }
-            
-        except genai.types.BlockedPromptException as e:
-            logger.error(f"Content blocked by Gemini API: {str(e)}")
-            return {
-                "answer": "I cannot process this query as it may violate content policies. Please rephrase your question.",
-                "sources": [],
-                "language": language
-            }
-        except genai.types.StopCandidateException as e:
-            logger.error(f"Generation stopped by API: {str(e)}")
-            return {
-                "answer": "I encountered an issue while generating the answer. Please try again.",
-                "sources": [],
-                "language": language
-            }
-        except ValueError as e:
-            logger.error(f"Value error during answer generation: {str(e)}")
-            return {
-                "answer": "I encountered an error processing your query. Please try again.",
-                "sources": [],
-                "language": language
+                "language": language,
+                "mode": "rag"
             }
         except Exception as e:
-            error_msg = str(e)
-            logger.error(f"LLM generation error: {error_msg}", exc_info=True)
-            
-            # Check for rate limit or quota errors
-            if "429" in error_msg or "quota" in error_msg.lower() or "rate limit" in error_msg.lower():
-                logger.warning("Rate limit or quota exceeded")
-                return {
-                    "answer": "Service is currently busy. Please try again in a moment.",
-                    "sources": [],
-                    "language": language
-                }
+            logger.error(f"RAG generation error: {e}")
+            # Fallback to hybrid
+            return await self._generate_hybrid_answer(query, context, sources, language)
+    
+    async def _generate_hybrid_answer(
+        self,
+        query: str,
+        context: str,
+        sources: List[Dict],
+        language: str
+    ) -> Dict:
+        """Generate answer combining retrieved docs with general knowledge"""
+        
+        formatted_sources = self._format_sources(sources)
+        
+        prompt = f"""You are an expert startup funding advisor for Indian entrepreneurs.
+
+**USER QUESTION**: {query}
+
+**AVAILABLE CONTEXT** (may be partially relevant):
+{context}
+
+**SOURCES**: {formatted_sources}
+
+**YOUR TASK**:
+You have some retrieved documents, but they may not fully answer the question. 
+
+**INSTRUCTIONS**:
+1. Be CONCISE - provide brief, actionable answers (2-4 sentences unless user asks for detail)
+2. Use bullet points with proper line breaks (\\n• for bullets, \\n\\n for paragraphs)
+3. **Use relevant parts from the context** where applicable - cite these with [Source N]
+4. **Supplement with your expert knowledge** of Indian VC ecosystem and funding norms
+5. **Be transparent** when using general knowledge
+6. **Be practical and actionable** - 1-2 next steps maximum
+
+**YOUR COMPREHENSIVE ANSWER** (be concise):"""
+        
+        try:
+            response = await self._call_gemini(prompt)
+            cited_sources = self._extract_citations(response, sources) if sources else []
             
             return {
-                "answer": "I encountered an error generating the answer. Please try again.",
+                "answer": response,
+                "sources": cited_sources[:5] if cited_sources else [],  # Limit sources
+                "language": language,
+                "mode": "hybrid"
+            }
+        except Exception as e:
+            logger.error(f"Hybrid generation error: {e}")
+            return await self._generate_general_answer(query, language)
+    
+    async def _generate_general_answer(self, query: str, language: str) -> Dict:
+        """Generate answer using general knowledge (no relevant context)"""
+        
+        prompt = f"""You are an expert startup funding advisor specializing in the Indian startup ecosystem.
+
+**USER QUESTION**: {query}
+
+**CONTEXT**: No specific documents were retrieved for this query. Provide helpful guidance based on your knowledge.
+
+**INSTRUCTIONS**:
+1. Be CONCISE - provide brief, clear answers (2-4 sentences unless user asks for detail)
+2. Use bullet points with proper line breaks (\\n• for bullets, \\n\\n for paragraphs)
+3. Clearly indicate this is general guidance
+4. Give practical, actionable advice
+5. If mentioning specific investors, note these are examples
+
+**YOUR EXPERT GUIDANCE** (be concise):"""
+        
+        try:
+            response = await self._call_gemini(prompt, temperature=0.6)
+            
+            return {
+                "answer": response,
+                "sources": [],
+                "language": language,
+                "mode": "general_knowledge",
+                "fallback_used": True,
+                "note": "Based on general knowledge of Indian startup ecosystem"
+            }
+        except Exception as e:
+            logger.error(f"General knowledge error: {e}")
+            return {
+                "answer": "I'm having trouble generating a response. Please try rephrasing your question about startup funding, investors, or government schemes.",
                 "sources": [],
                 "language": language
             }
     
-    async def generate_investor_recommendation(
-        self,
-        startup_profile: Dict,
-        investors: List[Dict]
-    ) -> Dict:
-        """
-        Generate personalized investor recommendations
-        
-        Args:
-            startup_profile: Dictionary with startup information
-            investors: List of investor dictionaries
-            
-        Returns:
-            Dictionary with recommendation text
-        """
-        if not startup_profile:
-            logger.warning("Empty startup profile provided")
-            return {"recommendation": "Please provide startup profile information."}
-        
-        if not investors:
-            logger.warning("Empty investors list provided")
-            return {"recommendation": "No investors available for recommendation."}
-        
+    async def _call_gemini(self, prompt: str, temperature: float = 0.4) -> str:
+        """Call Gemini API with error handling"""
         try:
-            logger.info(f"Generating investor recommendations for startup profile")
-            start_time = time.time()
-            
-            prompt = f"""Analyze the following startup profile and recommend the best investors from the list.
-
-Startup Profile:
-- Sector: {startup_profile.get('sector', 'Not specified')}
-- Stage: {startup_profile.get('stage', 'Not specified')}
-- Location: {startup_profile.get('location', 'Not specified')}
-- Funding Needed: ₹{startup_profile.get('funding_needed', 'Not specified')} Cr
-- Description: {startup_profile.get('description', 'Not provided')}
-
-Available Investors:
-{self._format_investors(investors)}
-
-Task:
-1. Rank the top 5 most suitable investors
-2. For each investor, explain WHY they're a good match
-3. Highlight any potential concerns
-4. Provide actionable next steps
-
-Format your response as:
-**Rank 1: [Investor Name]**
-Match Score: X/10
-Why this is a good match: ...
-Potential concerns: ...
-
-**Rank 2: [Investor Name]**
-...
-"""
-            
-            logger.debug(f"Investor recommendation prompt length: {len(prompt)} characters")
-            
-            # Generate response
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 None,
-                lambda: self.model.generate_content(prompt)
+                lambda: self.model.generate_content(
+                    prompt,
+                    generation_config={
+                        "temperature": temperature,
+                        "max_output_tokens": settings.MAX_TOKENS,
+                    }
+                )
             )
             
-            if not response or not hasattr(response, 'text'):
-                logger.error("Empty response from Gemini API for recommendations")
-                return {"recommendation": "Error generating recommendations. Please try again."}
+            if not response or not hasattr(response, 'text') or not response.text:
+                raise ValueError("Empty response from Gemini")
             
-            recommendation = response.text if response.text else "Error generating recommendations."
+            return response.text.strip()
             
-            processing_time = time.time() - start_time
-            logger.info(
-                f"Investor recommendations generated in {processing_time:.3f}s "
-                f"(length: {len(recommendation)})"
-            )
-            
-            return {"recommendation": recommendation}
-            
-        except genai.types.BlockedPromptException as e:
-            logger.error(f"Content blocked for investor recommendations: {str(e)}")
-            return {"recommendation": "Unable to generate recommendations due to content policy restrictions."}
         except Exception as e:
-            logger.error(f"Recommendation generation error: {str(e)}", exc_info=True)
-            return {"recommendation": "Error generating recommendations. Please try again."}
-    
-    async def analyze_funding_trends(
+            logger.error(f"Gemini API error: {e}")
+            raise
+
+    async def _stream_gemini(self, prompt: str, temperature: float = 0.4) -> AsyncIterator[str]:
+        """Stream tokens from Gemini using a background thread feeding an asyncio queue"""
+        loop = asyncio.get_event_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+        SENTINEL = object()
+
+        def worker():
+            try:
+                response = self.model.generate_content(
+                    prompt,
+                    generation_config={
+                        "temperature": temperature,
+                        "max_output_tokens": settings.MAX_TOKENS,
+                    },
+                    stream=True,
+                )
+                for chunk in response:
+                    try:
+                        text = getattr(chunk, 'text', None)
+                        if text:
+                            loop.call_soon_threadsafe(queue.put_nowait, text)
+                    except Exception:
+                        continue
+            except Exception as e:
+                loop.call_soon_threadsafe(queue.put_nowait, f"[stream_error] {str(e)}")
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
+
+        # Start worker thread without awaiting
+        loop.run_in_executor(None, worker)
+
+        while True:
+            item = await queue.get()
+            if item is SENTINEL:
+                break
+            yield str(item)
+
+    async def stream_answer(
         self,
-        deals_data: List[Dict],
-        timeframe: str
-    ) -> Dict:
-        """
-        Analyze and explain funding trends
-        
-        Args:
-            deals_data: List of deal dictionaries
-            timeframe: Time period for analysis
-            
-        Returns:
-            Dictionary with analysis text
-        """
-        if not deals_data:
-            logger.warning("Empty deals data provided for trend analysis")
-            return {"analysis": "No deals data available for analysis."}
-        
-        if not timeframe:
-            timeframe = "the specified period"
-        
+        query: str,
+        context: str,
+        sources: List[Dict],
+        language: str = "en"
+    ) -> AsyncIterator[str]:
+        """Stream answer using same strategy selection as non-streaming path"""
+        # Conversational fast path
+        if self._is_simple_conversational_query(query):
+            # Stream a short canned response
+            simple = (await self._generate_simple_response(query, language)).get("answer", "Hello")
+            # yield in one chunk
+            yield simple
+            return
+
+        # Choose mode
+        context_quality = self._assess_context_quality(query, context, sources)
         try:
-            logger.info(f"Analyzing funding trends for {timeframe} ({len(deals_data)} deals)")
-            start_time = time.time()
-            
-            prompt = f"""Analyze the following funding data for {timeframe} and provide insights.
+            if context_quality >= 7:
+                formatted_sources = self._format_sources(sources)
+                prompt = f"""You are an expert startup funding advisor with deep knowledge of the Indian startup ecosystem.
 
-Funding Data Summary:
-{self._format_deals_data(deals_data)}
+**TASK**: Answer the user's question using the provided context documents. Be accurate and cite sources.
 
-Provide:
-1. Key trends and patterns
-2. Sector-wise analysis
-3. Stage-wise distribution
-4. Geographic insights
-5. Predictions and recommendations for founders
+**CONTEXT FROM DOCUMENTS**:
+{context}
 
-Be specific with numbers and provide actionable insights."""
-            
-            logger.debug(f"Trend analysis prompt length: {len(prompt)} characters")
-            
-            # Generate response
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: self.model.generate_content(prompt)
-            )
-            
-            if not response or not hasattr(response, 'text'):
-                logger.error("Empty response from Gemini API for trend analysis")
-                return {"analysis": "Error analyzing trends. Please try again."}
-            
-            analysis = response.text if response.text else "Error analyzing trends."
-            
-            processing_time = time.time() - start_time
-            logger.info(
-                f"Trend analysis completed in {processing_time:.3f}s "
-                f"(analysis length: {len(analysis)})"
-            )
-            
-            return {"analysis": analysis}
-            
-        except genai.types.BlockedPromptException as e:
-            logger.error(f"Content blocked for trend analysis: {str(e)}")
-            return {"analysis": "Unable to generate analysis due to content policy restrictions."}
+**SOURCES**:
+{formatted_sources}
+
+**USER QUESTION**: {query}
+
+**INSTRUCTIONS**:
+1. Be CONCISE and to-the-point - provide brief, actionable answers
+2. Use bullet points with proper line breaks (\\n• for bullets, \\n\\n for paragraphs)
+3. Only provide detailed explanations if the user explicitly asks for it
+4. Cite specific sources using [Source N] format for facts
+5. Extract concrete details: names, amounts, dates, sectors
+6. If context doesn't fully answer, briefly supplement with your knowledge
+7. Include 1-2 practical next steps maximum
+
+**YOUR ANSWER** (be concise, cite sources):"""
+                async for token in self._stream_gemini(prompt, temperature=0.4):
+                    yield token
+            elif context_quality >= 4:
+                formatted_sources = self._format_sources(sources)
+                prompt = f"""You are an expert startup funding advisor for Indian entrepreneurs.
+
+**USER QUESTION**: {query}
+
+**AVAILABLE CONTEXT** (may be partially relevant):
+{context}
+
+**SOURCES**: {formatted_sources}
+
+**YOUR TASK**:
+You have some retrieved documents, but they may not fully answer the question. 
+
+**INSTRUCTIONS**:
+1. **Use relevant parts from the context** where applicable - cite these with [Source N]
+2. **Supplement with your expert knowledge** of the Indian VC ecosystem and funding norms
+3. **Be transparent** when using general knowledge
+4. **Be practical and actionable**
+
+**YOUR COMPREHENSIVE ANSWER** (combining documents + expertise):"""
+                async for token in self._stream_gemini(prompt, temperature=0.4):
+                    yield token
+            else:
+                prompt = f"""You are an expert startup funding advisor specializing in the Indian startup ecosystem.
+
+**USER QUESTION**: {query}
+
+**CONTEXT**: No specific documents were retrieved for this query. Provide helpful guidance based on your knowledge.
+
+**INSTRUCTIONS**:
+1. Provide accurate, helpful information based on your knowledge
+2. Clearly indicate this is general guidance
+3. Give practical, actionable advice
+
+**YOUR EXPERT GUIDANCE**:"""
+                async for token in self._stream_gemini(prompt, temperature=0.6):
+                    yield token
         except Exception as e:
-            logger.error(f"Trend analysis error: {str(e)}", exc_info=True)
-            return {"analysis": "Error analyzing trends. Please try again."}
+            yield f"[stream_error] {str(e)}"
     
     def _format_sources(self, sources: List[Dict]) -> str:
         """Format sources for prompt"""
         if not sources:
             return "No sources available."
         
-        try:
-            formatted = []
-            for i, source in enumerate(sources, 1):
-                title = source.get('title', source.get('source', 'Unknown'))
-                snippet = source.get('snippet', source.get('content', ''))[:200]  # Limit snippet length
-                formatted.append(f"[Source {i}] {title} - {snippet}")
-            
-            return "\n".join(formatted)
-        except Exception as e:
-            logger.error(f"Error formatting sources: {str(e)}")
-            return "Error formatting sources."
+        formatted = []
+        for i, source in enumerate(sources[:5], 1):  # Limit to top 5
+            title = source.get('title', source.get('name', 'Unknown'))
+            snippet = source.get('snippet', source.get('content', ''))[:200]
+            formatted.append(f"[Source {i}] {title}: {snippet}")
+        
+        return "\n".join(formatted)
     
     def _extract_citations(self, answer: str, sources: List[Dict]) -> List[Dict]:
-        """Extract which sources were cited in the answer"""
+        """Extract cited sources from answer"""
         if not answer or not sources:
-            return sources[:3] if sources else []  # Return top 3 if no citations found
+            return []
         
-        try:
-            cited = []
-            for i, source in enumerate(sources, 1):
-                # Check for citation patterns
-                if f"[Source {i}]" in answer or f"Source {i}" in answer:
-                    cited.append(source)
-            
-            # Return cited sources, or top 3 if no citations found
-            return cited if cited else sources[:3]
-        except Exception as e:
-            logger.error(f"Error extracting citations: {str(e)}")
-            return sources[:3] if sources else []
-    
-    def _format_investors(self, investors: List[Dict]) -> str:
-        """Format investor list for prompt"""
-        if not investors:
-            return "No investors available."
+        cited = []
+        for i, source in enumerate(sources, 1):
+            if f"[Source {i}]" in answer or f"Source {i}" in answer:
+                cited.append(source)
         
-        try:
-            formatted = []
-            for inv in investors:
-                name = inv.get('name', 'Unknown')
-                focus_areas = ', '.join(inv.get('focus_areas', [])) or 'Not specified'
-                ticket_min = inv.get('ticket_size_min', 'N/A')
-                ticket_max = inv.get('ticket_size_max', 'N/A')
-                location = inv.get('location', 'Not specified')
-                
-                formatted.append(
-                    f"- {name}: Focus on {focus_areas}, "
-                    f"Ticket size: ₹{ticket_min} - ₹{ticket_max} Cr, "
-                    f"Location: {location}"
-                )
-            
-            return "\n".join(formatted)
-        except Exception as e:
-            logger.error(f"Error formatting investors: {str(e)}")
-            return "Error formatting investors."
-    
-    def _format_deals_data(self, deals: List[Dict]) -> str:
-        """Format deals data for analysis"""
-        if not deals:
-            return "No data available"
-        
-        try:
-            # Create summary statistics
-            total_funding = sum(float(d.get('amount', 0)) for d in deals)
-            avg_deal = total_funding / len(deals) if deals else 0
-            
-            summary = f"""
-Total Deals: {len(deals)}
-Total Funding: ₹{total_funding:.2f} Cr
-Average Deal Size: ₹{avg_deal:.2f} Cr
-
-Sample Deals:
-"""
-            # Show first 10 deals
-            for deal in deals[:10]:
-                startup_name = deal.get('startup_name', 'Unknown')
-                amount = deal.get('amount', 0)
-                stage = deal.get('stage', 'Unknown')
-                sector = deal.get('sector', 'Unknown')
-                summary += f"- {startup_name}: ₹{amount} Cr ({stage}) in {sector}\n"
-            
-            return summary
-        except Exception as e:
-            logger.error(f"Error formatting deals data: {str(e)}")
-            return "Error formatting deals data."
-    
-    async def _generate_general_answer(self, query: str, language: str = "en") -> Dict:
-        """Generate answer using general knowledge when no context is available"""
-        try:
-            logger.info(f"Generating general knowledge answer for query: {query[:100]}...")
-            
-            # Use specialized general knowledge prompt
-            general_prompt = self._get_general_knowledge_prompt(query)
-            
-            response = self.model.generate_content(
-                general_prompt,
-                generation_config={
-                    "temperature": 0.7,  # Slightly higher creativity for general answers
-                    "max_output_tokens": settings.MAX_TOKENS,
-                }
-            )
-            
-            answer = response.text.strip()
-            
-            logger.info(f"Generated general answer (length: {len(answer)})")
-            
-            return {
-                "answer": answer,
-                "sources": [],  # No specific sources for general knowledge
-                "language": language,
-                "fallback_used": True  # Flag to indicate general knowledge was used
-            }
-            
-        except Exception as e:
-            logger.error(f"Error generating general answer: {str(e)}")
-            return {
-                "answer": "I apologize, but I'm having trouble generating a response. Please try rephrasing your question or contact support if the issue persists.",
-                "sources": [],
-                "language": language,
-                "error": True
-            }
+        return cited if cited else sources[:3]  # Return top 3 if no explicit citations
     
     def _is_simple_conversational_query(self, query: str) -> bool:
-        """Detect if query is a simple conversational query that doesn't need detailed responses"""
+        """Detect simple greetings/conversational queries"""
         simple_queries = [
-            "hi", "hello", "hey", "good morning", "good afternoon", "good evening",
-            "how are you", "how do you do", "what's up", "what's new",
-            "tell me about yourself", "who are you", "what are you", "what do you do",
-            "thanks", "thank you", "bye", "goodbye", "see you", "see you later",
-            "help", "what can you do", "how can you help me", "what's your purpose"
+            "hi", "hello", "hey", "how are you", "who are you", 
+            "what can you do", "thanks", "thank you", "bye"
         ]
         
-        query_lower = query.lower().strip()
-        query_lower = query_lower.rstrip('?!.')
+        query_lower = query.lower().strip().rstrip('?!.')
         
-        # Check exact matches
         if query_lower in simple_queries:
             return True
-            
-        # Check if query starts with simple greetings
-        for simple_query in simple_queries:
-            if query_lower.startswith(simple_query):
-                return True
-                
-        # Check for very short queries (likely conversational)
-        if len(query_lower.split()) <= 2 and len(query_lower) <= 10:
+        
+        if len(query.split()) <= 3 and any(q in query_lower for q in simple_queries):
             return True
-            
+        
         return False
     
-    async def _generate_simple_response(self, query: str, language: str = "en") -> Dict:
-        """Generate brief, appropriate responses for simple conversational queries"""
+    async def _generate_simple_response(self, query: str, language: str) -> Dict:
+        """Generate brief response for conversational queries"""
+        query_lower = query.lower()
+        
+        if any(g in query_lower for g in ["hi", "hello", "hey"]):
+            response = "Hello! I'm your AI advisor for startup funding in India. I can help you with:\n• Finding investors (VCs, Angels)\n• Understanding funding options\n• Government schemes\n• Pitch deck guidance\n\nWhat would you like to know?"
+        
+        elif "who are you" in query_lower or "what are you" in query_lower:
+            response = "I'm an AI-powered startup funding advisor specializing in the Indian ecosystem. I can help you find investors, understand funding stages, navigate government schemes, and provide practical fundraising guidance. Ask me anything!"
+        
+        elif "what can you do" in query_lower or "help" in query_lower:
+            response = "I can assist with:\n\n• **Investor Discovery**: Find VCs and Angels matching your sector, stage, and location\n• **Funding Guidance**: Explain Series A, Seed, ticket sizes, typical terms\n• **Government Schemes**: Startup India, SISFS, state policies\n• **Strategy**: Pitch deck feedback, approach strategies\n• **Ecosystem Insights**: Trends, data, best practices\n\nWhat specific help do you need?"
+        
+        elif any(t in query_lower for t in ["thanks", "thank you"]):
+            response = "You're welcome! Feel free to ask anything about startup funding. I'm here to help! 🚀"
+        
+        elif "bye" in query_lower:
+            response = "Goodbye! Best of luck with your startup journey. Come back anytime! 🌟"
+        
+        else:
+            response = "Hello! I'm your startup funding advisor. Ask me about investors, funding, or government schemes for Indian startups."
+        
+        return {
+            "answer": response,
+            "sources": [],
+            "language": language,
+            "mode": "conversational"
+        }
+    
+    async def generate_investor_recommendation(
+        self,
+        startup_profile: Dict,
+        investors: List[Dict]
+    ) -> Dict:
+        """Generate investor recommendations"""
+        if not startup_profile or not investors:
+            return {"recommendation": "Please provide startup profile and investor information."}
+        
         try:
-            query_lower = query.lower().strip()
+            prompt = f"""You are an expert VC matchmaker for Indian startups.
+
+**STARTUP PROFILE**:
+- Sector: {startup_profile.get('sector', 'Not specified')}
+- Stage: {startup_profile.get('stage', 'Not specified')}
+- Location: {startup_profile.get('location', 'Not specified')}
+- Funding Need: ₹{startup_profile.get('funding_needed', 0)} Cr
+- Description: {startup_profile.get('description', 'Not provided')}
+
+**AVAILABLE INVESTORS**:
+{self._format_investors(investors)}
+
+**TASK**: Rank top 5 investors and explain why they match.
+
+**FORMAT**:
+**1. [Investor Name]** (Match: X/10)
+- Why they fit: [2-3 specific reasons]
+- Approach strategy: [how to reach them]
+
+**2. [Investor Name]**...
+
+Provide ranked recommendations:"""
             
-            # Greeting responses
-            if any(greeting in query_lower for greeting in ["hi", "hello", "hey", "good morning", "good afternoon", "good evening"]):
-                response = "Hello! I'm your startup funding advisor. I can help you with information about investors, funding options, and government schemes for Indian startups. What would you like to know?"
-            
-            # "How are you" responses
-            elif any(how_query in query_lower for how_query in ["how are you", "how do you do"]):
-                response = "I'm doing great and ready to help! I'm here to assist you with startup funding advice and investor information. How can I help you today?"
-            
-            # "Who are you" responses
-            elif any(who_query in query_lower for who_query in ["who are you", "what are you", "tell me about yourself", "what do you do"]):
-                response = "I'm an expert startup funding advisor specializing in the Indian startup ecosystem. I can help you find investors, understand funding options, and navigate government schemes. Feel free to ask me anything about startup funding!"
-            
-            # "What can you do" responses
-            elif any(help_query in query_lower for help_query in ["what can you do", "how can you help", "what's your purpose", "help"]):
-                response = "I can help you with: • Finding suitable investors for your startup • Understanding funding stages and amounts • Navigating government schemes like Startup India • Analyzing pitch decks • Providing startup ecosystem insights. What would you like to explore?"
-            
-            # "Thanks" responses
-            elif any(thanks_query in query_lower for thanks_query in ["thanks", "thank you"]):
-                response = "You're welcome! I'm here to help with any startup funding questions you might have. Feel free to ask anything else!"
-            
-            # "Goodbye" responses
-            elif any(bye_query in query_lower for bye_query in ["bye", "goodbye", "see you", "see you later"]):
-                response = "Goodbye! Feel free to come back anytime you need startup funding advice. Best of luck with your entrepreneurial journey!"
-            
-            # Default simple response
-            else:
-                response = "Hello! I'm your startup funding advisor. I can help you with investors, funding options, and government schemes for Indian startups. What would you like to know?"
-            
-            logger.info(f"Generated simple response for query: {query[:50]}...")
-            
-            return {
-                "answer": response,
-                "sources": [],
-                "language": language,
-                "response_type": "simple_conversational"
-            }
+            response = await self._call_gemini(prompt)
+            return {"recommendation": response}
             
         except Exception as e:
+            logger.error(f"Recommendation error: {e}")
+            return {"recommendation": "Error generating recommendations. Please try again."}
+    
+    def _format_investors(self, investors: List[Dict]) -> str:
+        """Format investor list"""
+        formatted = []
+        for inv in investors[:10]:  # Limit to 10
+            name = inv.get('name', 'Unknown')
+            focus = ', '.join(inv.get('focus_areas', [])[:3]) or 'Not specified'
+            ticket = f"₹{inv.get('ticket_size_min', 'N/A')}-{inv.get('ticket_size_max', 'N/A')}Cr"
+            location = inv.get('location', 'Not specified')
+            
+            formatted.append(f"• {name}: {focus} | {ticket} | {location}")
+        
+        return "\n".join(formatted)
+    
+    async def analyze_funding_trends(self, deals_data: List[Dict], timeframe: str) -> Dict:
+        """Analyze funding trends"""
+        if not deals_data:
+            return {"analysis": "No data available for analysis."}
+        
+        try:
+            summary = self._format_deals_data(deals_data)
+            
+            prompt = f"""Analyze this Indian startup funding data for {timeframe}:
+
+{summary}
+
+Provide:
+1. **Key Trends**: Major patterns and changes
+2. **Sector Analysis**: Which sectors are hot/cold
+3. **Stage Distribution**: Where capital is flowing
+4. **Actionable Insights**: What founders should know
+
+Be specific with numbers and practical:"""
+            
+            response = await self._call_gemini(prompt)
+            return {"analysis": response}
+            
+        except Exception as e:
+            logger.error(f"Trend analysis error: {e}")
+            return {"analysis": "Error analyzing trends."}
+    
+    def _format_deals_data(self, deals: List[Dict]) -> str:
+        """Format deals for analysis"""
+        total = sum(float(d.get('amount', 0)) for d in deals)
+        avg = total / len(deals) if deals else 0
+        
+        summary = f"**Total**: {len(deals)} deals, ₹{total:.1f}Cr total, ₹{avg:.1f}Cr average\n\n**Sample Deals**:\n"
+        
+        for deal in deals[:10]:
+            summary += f"• {deal.get('startup_name', 'Unknown')}: ₹{deal.get('amount', 0)}Cr ({deal.get('stage', 'Unknown')}) - {deal.get('sector', 'Unknown')}\n"
+        
+        return summary
+
+    async def generate_simple_response(self, prompt: str) -> str:
+        """
+        Generate a simple response from the LLM given a prompt
+        Used by external modules like investors.py for AI summaries
+        
+        Args:
+            prompt: The prompt to send to the LLM
+            
+        Returns:
+            Generated response text
+        """
+        try:
+            response = await self._call_gemini(prompt, temperature=0.5)
+            return response
+        except Exception as e:
             logger.error(f"Error generating simple response: {str(e)}")
-            return {
-                "answer": "Hello! I'm your startup funding advisor. How can I help you today?",
-                "sources": [],
-                "language": language,
-                "error": True
-            }
-    
-    def _get_context_based_prompt(self, context: str, sources: str, query: str) -> str:
-        """Get enhanced context-based prompt"""
-        return f"""You are an expert startup funding advisor for Indian entrepreneurs with access to specific documents.
-
-Your task is to answer the user's question using ONLY the provided context documents.
-
-Guidelines:
-1. Base your answer ENTIRELY on the provided context
-2. Cite sources using [Source N] format for each piece of information
-3. If multiple documents provide conflicting info, acknowledge and explain
-4. Extract specific details like investor names, funding amounts, dates
-5. Be precise and factual - no speculation beyond the documents
-6. Structure answer with clear sections and bullet points
-7. Include relevant quotes or data points from the documents
-8. Maintain professional yet approachable tone
-9. Keep responses concise but comprehensive
-10. Focus on Indian startup ecosystem specifics
-
-Context Documents:
-{context}
-
-Sources:
-{sources}
-
-User Question: {query}
-
-Provide a comprehensive answer based on these documents:"""
-    
-    def _get_general_knowledge_prompt(self, query: str) -> str:
-        """Get enhanced general knowledge prompt"""
-        return f"""You are an expert startup funding advisor for Indian entrepreneurs.
-
-No specific documents were found for this query. Please provide a helpful answer based on your general knowledge as a startup and investment expert.
-
-Guidelines:
-1. Provide practical, actionable advice for Indian entrepreneurs
-2. Focus on startups, investors, funding, and financial matters
-3. Include Indian startup ecosystem specifics
-4. Mention current trends and best practices
-5. Be encouraging and supportive to founders
-6. Structure answer with clear sections and bullet points
-7. Provide concrete examples and actionable steps
-8. Acknowledge when information is general rather than specific
-9. Maintain professional yet approachable tone
-10. Keep responses concise but comprehensive
-
-User Question: {query}
-
-Please provide a comprehensive, helpful response:"""
-    
-    def _get_multilingual_prompt(self, query: str, language: str) -> str:
-        """Get multilingual prompt for IndicTrans2"""
-        return f"""You are an expert startup funding advisor for Indian entrepreneurs, capable of communicating in multiple Indian languages.
-
-Guidelines:
-1. Respond in the user's preferred language ({language})
-2. Maintain professional yet approachable tone
-3. Use appropriate terminology for the Indian startup ecosystem
-4. Provide culturally relevant examples and advice
-5. Keep language simple and accessible
-6. Focus on practical, actionable guidance
-7. Structure answer with clear sections and bullet points
-8. Include Indian startup ecosystem specifics
-
-User Question: {query}
-
-Please provide helpful advice in {language}:"""
-    
-    def _get_pitch_deck_analysis_prompt(self, content: str) -> str:
-        """Get pitch deck analysis prompt"""
-        return f"""You are an expert venture capitalist and startup advisor analyzing pitch decks.
-
-Your task is to analyze the provided pitch deck content and provide actionable feedback.
-
-Guidelines:
-1. Evaluate business model and value proposition
-2. Assess market opportunity and competitive landscape
-3. Review financial projections and funding requirements
-4. Identify strengths and areas for improvement
-5. Suggest specific investors who might be interested
-6. Provide actionable recommendations for next steps
-7. Structure feedback with clear sections
-8. Be constructive and encouraging
-9. Focus on Indian startup ecosystem context
-10. Provide specific, actionable advice
-
-Pitch Deck Content:
-{content}
-
-Provide comprehensive analysis and recommendations:"""
-    
-    def _get_investor_matching_prompt(self, startup_profile: str, investor_data: str) -> str:
-        """Get investor matching prompt"""
-        return f"""You are an expert startup funding advisor specializing in investor-startup matching.
-
-Your task is to match startups with suitable investors based on their profiles.
-
-Guidelines:
-1. Analyze startup's sector, stage, and funding needs
-2. Consider investor preferences and portfolio
-3. Prioritize investors with relevant domain expertise
-4. Consider geographic alignment
-5. Provide reasoning for each recommendation
-6. Suggest outreach strategies
-7. Structure recommendations with clear rankings
-8. Include specific contact information if available
-9. Focus on Indian startup ecosystem
-10. Provide actionable next steps
-
-Startup Profile:
-{startup_profile}
-
-Available Investors:
-{investor_data}
-
-Provide ranked investor recommendations with reasoning:"""
-    
-    def _get_policy_information_prompt(self, context: str, query: str) -> str:
-        """Get policy information prompt"""
-        return f"""You are an expert on Indian government policies and schemes for startups.
-
-Your task is to provide accurate information about government support programs.
-
-Guidelines:
-1. Provide accurate, up-to-date policy information
-2. Explain eligibility criteria clearly
-3. Detail application processes and timelines
-4. Highlight benefits and limitations
-5. Suggest complementary schemes
-6. Include practical implementation tips
-7. Structure information clearly with sections
-8. Use simple, accessible language
-9. Focus on actionable guidance
-10. Include relevant contact information
-
-Policy Context:
-{context}
-
-User Question: {query}
-
-Provide comprehensive policy guidance:"""
+            return ""
 
 
 # Singleton instance
 try:
     llm_service = LLMService()
+    logger.info("✅ LLM Service singleton initialized")
 except Exception as e:
-    logger.error(f"Failed to initialize llm_service singleton: {str(e)}")
+    logger.error(f"❌ Failed to initialize llm_service: {e}")
     llm_service = None

@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Chrome, Users, Building2, Loader } from 'lucide-react';
-import { supabase, signInWithGoogle, getUserProfile } from '@/lib/supabase';
+import { Chrome, Users, Building2, Loader, AlertTriangle } from 'lucide-react';
+import { supabase, signInWithGoogle, isSupabaseConfigured } from '@/lib/supabase';
 
 type Step = 'role-select' | 'login';
 type Role = 'founder' | 'investor';
@@ -12,7 +12,6 @@ export default function LoginPage() {
   const router = useRouter();
   const [step, setStep] = useState<Step>('role-select');
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
-  const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -24,6 +23,12 @@ export default function LoginPage() {
 
   const initializePage = async () => {
     try {
+      // If Supabase is not configured, stop initializing
+      if (!isSupabaseConfigured) {
+        setIsInitializing(false);
+        return;
+      }
+
       // Check for pending role from role-select page
       const pendingRole = localStorage.getItem('pendingRole') as Role | null;
       
@@ -34,41 +39,11 @@ export default function LoginPage() {
         sessionStorage.setItem('pendingRole', pendingRole);
       }
 
-      // Check existing auth
-      await checkExistingAuth();
+      // No auto-login; require explicit sign in every visit
     } catch (error) {
       console.error('Error initializing login page:', error);
     } finally {
       setIsInitializing(false);
-    }
-  };
-
-  const checkExistingAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (session?.user) {
-      // User is logged in, check their profile
-      const profile = await getUserProfile(session.user.id);
-      
-      if (profile) {
-        // Check if remember me is still valid
-        if (profile.remember_me && profile.remember_me_expires) {
-          const expiresAt = new Date(profile.remember_me_expires);
-          if (expiresAt > new Date()) {
-            // Auto-login
-            localStorage.setItem('userRole', profile.role);
-            localStorage.setItem('userProfile', JSON.stringify(profile));
-            router.push('/chat');
-            return;
-          }
-        }
-        
-        // Profile exists but remember me expired or not set
-        if (!profile.remember_me) {
-          // Log them out
-          await supabase.auth.signOut();
-        }
-      }
     }
   };
 
@@ -84,9 +59,12 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      // Store selected role and remember me preference temporarily
+      // Store selected role in BOTH sessionStorage and localStorage
+      // This provides a fallback in case sessionStorage is cleared during OAuth redirect
       sessionStorage.setItem('pendingRole', selectedRole);
-      sessionStorage.setItem('pendingRememberMe', String(rememberMe));
+      localStorage.setItem('pendingRole', selectedRole);
+
+      console.log('Starting Google sign in with role:', selectedRole);
 
       await signInWithGoogle();
     } catch (err: any) {
@@ -119,6 +97,17 @@ export default function LoginPage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
         <div className="max-w-4xl w-full">
+          {!isSupabaseConfigured && (
+            <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="font-medium text-amber-800">Authentication Not Configured</h3>
+                <p className="text-sm text-amber-700 mt-1">
+                  Supabase environment variables are missing. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your .env.local file.
+                </p>
+              </div>
+            </div>
+          )}
           <div className="text-center mb-12">
             <h1 className="text-4xl font-bold text-gray-900 mb-2">
               Welcome to DealFlow AI
@@ -214,9 +203,20 @@ export default function LoginPage() {
             </div>
           )}
 
+          {!isSupabaseConfigured && (
+            <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm text-amber-700">
+                  Authentication is not configured. Please set up Supabase environment variables.
+                </p>
+              </div>
+            </div>
+          )}
+
           <button
             onClick={handleGoogleSignIn}
-            disabled={isLoading}
+            disabled={isLoading || !isSupabaseConfigured}
             className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-white border-2 border-gray-300 rounded-xl font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
           >
             {isLoading ? (
@@ -232,18 +232,7 @@ export default function LoginPage() {
             )}
           </button>
 
-          <div className="mt-6 flex items-center">
-            <input
-              type="checkbox"
-              id="rememberMe"
-              checked={rememberMe}
-              onChange={(e) => setRememberMe(e.target.checked)}
-              className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-            />
-            <label htmlFor="rememberMe" className="ml-2 text-sm text-gray-700">
-              Remember me for 30 days
-            </label>
-          </div>
+          {/* Remember-me removed: login required every visit */}
 
           <button
             onClick={handleBackToRoleSelect}

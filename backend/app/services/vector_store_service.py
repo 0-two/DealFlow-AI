@@ -3,11 +3,14 @@ Vector Store Service for managing vector database operations with Weaviate
 """
 import weaviate
 from weaviate.classes.config import Configure, Property, DataType
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
 import logging
 from app.config.settings import settings
 from app.services.embedding_service import embedding_service
 from app.utils.logger import setup_logger
+import time
+import asyncio
+from collections import OrderedDict
 
 logger = setup_logger(__name__)
 
@@ -32,6 +35,10 @@ class VectorStoreService:
             
             logger.info("Successfully connected to Weaviate")
             self.initialize_collections()
+
+            # Simple in-memory search cache
+            self._search_cache: "OrderedDict[str, Tuple[float, List[Dict]] ]" = OrderedDict()
+            self._search_cache_lock = asyncio.Lock()
             
         except weaviate.exceptions.WeaviateBaseError as e:
             logger.error(f"Weaviate connection error: {str(e)}")
@@ -389,6 +396,21 @@ class VectorStoreService:
             return []
         
         try:
+            # Cache lookup
+            if settings.CACHE_ENABLED:
+                cache_key = f"{collection_name}|{limit}|{query.strip()}|{str(filters) if filters else ''}"
+                now = time.time()
+                async with self._search_cache_lock:
+                    if cache_key in self._search_cache:
+                        ts, value = self._search_cache[cache_key]
+                        if now - ts <= settings.SEARCH_CACHE_TTL_SECONDS:
+                            # move to end (LRU)
+                            self._search_cache.move_to_end(cache_key)
+                            logger.debug("Search cache hit for %s", collection_name)
+                            return value
+                        else:
+                            # expired
+                            self._search_cache.pop(cache_key, None)
             # Check if collection exists
             if not self.client.collections.exists(collection_name):
                 logger.error(f"Collection {collection_name} does not exist")
@@ -480,7 +502,14 @@ class VectorStoreService:
                     f"Hybrid search completed: found {len(results)} results "
                     f"for query in {collection_name}"
                 )
-                
+                # Cache set
+                if settings.CACHE_ENABLED:
+                    async with self._search_cache_lock:
+                        self._search_cache[cache_key] = (time.time(), results)
+                        self._search_cache.move_to_end(cache_key)
+                        # evict if oversized
+                        while len(self._search_cache) > settings.SEARCH_CACHE_MAX_ENTRIES:
+                            self._search_cache.popitem(last=False)
                 return results
                 
             except weaviate.exceptions.WeaviateQueryError as e:

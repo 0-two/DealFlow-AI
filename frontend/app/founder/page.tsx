@@ -1,19 +1,10 @@
 'use client';
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { Upload, TrendingUp, Users, FileText } from 'lucide-react';
 import Link from 'next/link';
+import ProtectedRoute from '@/components/Auth/ProtectedRoute';
 
 export default function FounderPage() {
-  const router = useRouter();
-
-  useEffect(() => {
-    const userRole = localStorage.getItem('userRole');
-    if (userRole !== 'founder') {
-      router.push('/role-select');
-    }
-  }, [router]);
 
   const founderActions = [
     {
@@ -47,7 +38,8 @@ export default function FounderPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <ProtectedRoute allowedRoles={['founder']}>
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <div className="max-w-7xl mx-auto px-4 py-12">
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold text-gray-900 mb-4">
@@ -119,5 +111,6 @@ export default function FounderPage() {
         </div>
       </div>
     </div>
+    </ProtectedRoute>
   );
 }

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { trendsAPI } from '@/lib/api';
 import Header from '@/components/Layout/Header';
+import ProtectedRoute from '@/components/Auth/ProtectedRoute';
 import TrendChart from '@/components/Trends/TrendChart';
 import { LanguageCode } from '@/lib/types';
 import { TrendingUp, Calendar, DollarSign, Target } from 'lucide-react';
@@ -29,6 +30,7 @@ export default function TrendsPage() {
   ];
 
   return (
+    <ProtectedRoute>
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <Header 
         selectedLanguage={selectedLanguage}
@@ -172,5 +174,6 @@ export default function TrendsPage() {
         )}
       </main>
     </div>
+    </ProtectedRoute>
   );
 }

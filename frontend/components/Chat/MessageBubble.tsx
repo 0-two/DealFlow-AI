@@ -3,6 +3,7 @@
 import { Message } from '@/lib/types';
 import SourceCard from './SourceCard';
 import { User, Bot } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 
 interface Props {
   message: Message;
@@ -26,7 +27,28 @@ export default function MessageBubble({ message }: Props) {
               ? 'bg-indigo-600 text-white' 
               : 'bg-white text-gray-800 shadow-md'
           }`}>
-            <p className="whitespace-pre-wrap">{message.content}</p>
+            {isUser ? (
+              <p className="whitespace-pre-wrap">{message.content}</p>
+            ) : (
+              <div className="prose prose-sm max-w-none prose-p:my-2 prose-ul:my-2 prose-li:my-1">
+                <ReactMarkdown
+                  components={{
+                    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                    ul: ({ children }) => <ul className="list-disc ml-4 space-y-1">{children}</ul>,
+                    ol: ({ children }) => <ol className="list-decimal ml-4 space-y-1">{children}</ol>,
+                    li: ({ children }) => <li className="text-gray-800">{children}</li>,
+                    strong: ({ children }) => <strong className="font-semibold text-gray-900">{children}</strong>,
+                    a: ({ href, children }) => (
+                      <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">
+                        {children}
+                      </a>
+                    ),
+                  }}
+                >
+                  {message.content}
+                </ReactMarkdown>
+              </div>
+            )}
           </div>
 
           {message.sources && message.sources.length > 0 && (

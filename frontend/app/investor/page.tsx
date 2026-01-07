@@ -1,19 +1,10 @@
 'use client';
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { FileText, TrendingUp, Users, Search } from 'lucide-react';
 import Link from 'next/link';
+import ProtectedRoute from '@/components/Auth/ProtectedRoute';
 
 export default function InvestorPage() {
-  const router = useRouter();
-
-  useEffect(() => {
-    const userRole = localStorage.getItem('userRole');
-    if (userRole !== 'investor') {
-      router.push('/role-select');
-    }
-  }, [router]);
 
   const investorActions = [
     {
@@ -47,7 +38,8 @@ export default function InvestorPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100">
+    <ProtectedRoute allowedRoles={['investor']}>
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100">
       <div className="max-w-7xl mx-auto px-4 py-12">
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold text-gray-900 mb-4">
@@ -139,5 +131,6 @@ export default function InvestorPage() {
         </div>
       </div>
     </div>
+    </ProtectedRoute>
   );
 }

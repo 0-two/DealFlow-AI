@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Header from '@/components/Layout/Header';
+import ProtectedRoute from '@/components/Auth/ProtectedRoute';
 import { LanguageCode } from '@/lib/types';
 import { Building, CheckCircle, Calendar, ExternalLink } from 'lucide-react';
 
@@ -91,6 +92,7 @@ export default function PoliciesPage() {
   );
 
   return (
+    <ProtectedRoute>
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <Header 
         selectedLanguage={selectedLanguage}
@@ -257,5 +259,6 @@ export default function PoliciesPage() {
         )}
       </main>
     </div>
+    </ProtectedRoute>
   );
 }

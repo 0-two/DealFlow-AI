@@ -15,16 +15,17 @@ export interface WebSource {
 }
 
 export interface Source {
-  id: number;
+  id?: number;
   title: string;
   snippet: string;
-  type: 'article' | 'report' | 'policy' | 'database';
-  url?: string;
+  type?: 'article' | 'report' | 'policy' | 'database' | 'web';
+  url: string;
   date?: string;
   score?: number;
   verified?: boolean;
   verification_confidence?: number;
   supporting_web_sources?: WebSource[];
+  published_date?: string;
 }
 
 export interface QueryRequest {
@@ -60,6 +61,79 @@ export interface Investor {
   };
   portfolio?: string[];
   score?: number;
+  investment_stages?: string[];
+  number_of_investments?: number;
+  number_of_exits?: number;
+  description?: string;
+  founding_year?: number;
+  partner_name?: string;
+  twitter?: string;
+  linkedin?: string;
+}
+
+export interface WebInsight {
+  title: string;
+  url: string;
+  snippet: string;
+  score?: number;
+}
+
+export interface InvestorDetailResponse {
+  investor: Investor;
+  web_insights: WebInsight[];
+  ai_summary?: string;
+  recent_news: {
+    title: string;
+    url: string;
+    snippet: string;
+    date?: string;
+  }[];
+}
+
+export interface Startup {
+  name: string;
+  sector: string;
+  stage: string;
+  location: string;
+  description: string;
+  problem_statement?: string;
+  solution?: string;
+  business_model?: string;
+  market_size?: string;
+  traction?: string;
+  funding_amount?: number;
+  team_size?: number;
+  revenue?: number;
+  contact?: {
+    email: string;
+    website: string;
+  };
+  founder_name?: string;
+  investors?: string;
+  total_funding?: string;
+  last_funding_date?: string;
+  year_founded?: number;
+  funding_status?: string;
+  twitter?: string;
+  linkedin?: string;
+  facebook?: string;
+}
+
+export interface StartupDetailResponse {
+  startup: Startup;
+  web_insights: WebInsight[];
+  ai_summary?: string;
+  recent_news: {
+    title: string;
+    url: string;
+    snippet: string;
+    date?: string;
+  }[];
+  funding_history: {
+    title: string;
+    url: string;
+    snippet: string;
+  }[];
 }
 
 export interface FundingDeal {

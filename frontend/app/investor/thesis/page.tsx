@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import axios from 'axios';
 import Header from '@/components/Layout/Header';
+import ProtectedRoute from '@/components/Auth/ProtectedRoute';
 import { Building2, Loader, CheckCircle, FileText } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -46,6 +47,7 @@ export default function InvestorThesisPage() {
   const result = uploadMutation.data;
 
   return (
+    <ProtectedRoute allowedRoles={['investor']}>
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-100">
       <Header selectedLanguage="en" onLanguageChange={() => {}} />
 
@@ -393,5 +395,6 @@ export default function InvestorThesisPage() {
         )}
       </main>
     </div>
+    </ProtectedRoute>
   );
 }

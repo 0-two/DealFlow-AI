@@ -1,13 +1,15 @@
 """
 Investor Search and Recommendation API Routes
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Path
 from pydantic import BaseModel, Field, validator
 from typing import Optional, List, Dict, Any
 import logging
+import urllib.parse
 
 from app.services.vector_store_service import vector_store_service
 from app.services.llm_service import llm_service
+from app.services.tavily_service import tavily_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -54,6 +56,14 @@ class RecommendationResponse(BaseModel):
     investors: List[Dict[str, Any]] = Field(..., description="Recommended investors")
     reasoning: Optional[str] = Field(None, description="Reasoning behind recommendations")
     count: int = Field(..., description="Number of recommended investors")
+
+
+class InvestorDetailResponse(BaseModel):
+    """Response with detailed investor information including web sources"""
+    investor: Dict[str, Any] = Field(..., description="Investor profile from database")
+    web_insights: List[Dict[str, Any]] = Field(default_factory=list, description="Web search results about investor")
+    ai_summary: Optional[str] = Field(None, description="AI-generated summary about investor")
+    recent_news: List[Dict[str, Any]] = Field(default_factory=list, description="Recent news about investor")
 
 
 @router.get("/search", response_model=InvestorResponse,
@@ -355,4 +365,161 @@ async def health_check() -> Dict[str, str]:
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         raise HTTPException(status_code=503, detail="Service unavailable")
+
+
+@router.get("/details/{investor_name}", response_model=InvestorDetailResponse,
+            responses={
+                404: {"description": "Investor not found"},
+                500: {"description": "Internal server error"}
+            })
+async def get_investor_details(
+    investor_name: str = Path(..., description="Name of the investor to look up"),
+    include_news: bool = Query(True, description="Include recent news about the investor")
+) -> InvestorDetailResponse:
+    """
+    Get detailed information about a specific investor including web-sourced insights
+    
+    Searches for the investor in the database and enriches the profile with
+    real-time web search results using Tavily API.
+    
+    Args:
+        investor_name: Name of the investor/fund to look up
+        include_news: Whether to include recent news
+        
+    Returns:
+        InvestorDetailResponse with investor profile and web insights
+    """
+    try:
+        # Decode URL-encoded investor name
+        decoded_name = urllib.parse.unquote(investor_name)
+        logger.info(f"Fetching details for investor: {decoded_name}")
+        
+        # Search for investor in database
+        search_results = await vector_store_service.hybrid_search(
+            "Investor",
+            query=decoded_name,
+            limit=5
+        )
+        
+        # Find exact or best match
+        investor_data = None
+        for result in search_results:
+            props = result.get('properties', {})
+            if props.get('name', '').lower() == decoded_name.lower():
+                investor_data = props
+                break
+        
+        # If no exact match, use best match
+        if not investor_data and search_results:
+            investor_data = search_results[0].get('properties', {})
+        
+        if not investor_data:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Investor '{decoded_name}' not found"
+            )
+        
+        # Format investor data
+        investor_profile = {
+            "name": investor_data.get('name', 'Unknown'),
+            "type": investor_data.get('type', 'Venture Capital'),
+            "focus_areas": investor_data.get('focus_areas', []),
+            "location": investor_data.get('location', ''),
+            "ticket_size": {
+                "min": investor_data.get('ticket_size_min'),
+                "max": investor_data.get('ticket_size_max')
+            },
+            "contact": {
+                "email": investor_data.get('contact_email', ''),
+                "website": investor_data.get('website', '')
+            },
+            "portfolio": investor_data.get('portfolio', []),
+            "investment_stages": investor_data.get('investment_stages', []),
+            "number_of_investments": investor_data.get('number_of_investments', 0),
+            "number_of_exits": investor_data.get('number_of_exits', 0),
+            "description": investor_data.get('description', ''),
+            "founding_year": investor_data.get('founding_year'),
+            "partner_name": investor_data.get('partner_name', ''),
+            "twitter": investor_data.get('twitter', ''),
+            "linkedin": investor_data.get('linkedin', '')
+        }
+        
+        # Search for additional web insights using Tavily
+        web_insights = []
+        recent_news = []
+        ai_summary = None
+        
+        try:
+            # Search for general information about the investor
+            investor_search_query = f"{decoded_name} venture capital fund investments portfolio"
+            web_results = await tavily_service.search(
+                query=investor_search_query,
+                max_results=5,
+                search_depth="advanced"
+            )
+            
+            for result in web_results:
+                web_insights.append({
+                    "title": result.get("title", ""),
+                    "url": result.get("url", ""),
+                    "snippet": result.get("content", "")[:300] + "..." if len(result.get("content", "")) > 300 else result.get("content", ""),
+                    "score": result.get("score", 0)
+                })
+            
+            # Search for recent news if requested
+            if include_news:
+                news_query = f"{decoded_name} investment news funding announcement 2024"
+                news_results = await tavily_service.search(
+                    query=news_query,
+                    max_results=3,
+                    search_depth="basic"
+                )
+                
+                for result in news_results:
+                    recent_news.append({
+                        "title": result.get("title", ""),
+                        "url": result.get("url", ""),
+                        "snippet": result.get("content", "")[:200] + "..." if len(result.get("content", "")) > 200 else result.get("content", ""),
+                        "date": result.get("published_date")
+                    })
+            
+            # Generate AI summary if we have web insights
+            if web_insights:
+                try:
+                    summary_prompt = f"""Based on the following information about {decoded_name}, provide a brief 2-3 sentence summary of their investment focus and notable characteristics:
+
+Investor Profile:
+- Type: {investor_profile['type']}
+- Focus: {', '.join(investor_profile['focus_areas'][:5])}
+- Location: {investor_profile['location']}
+- Portfolio: {', '.join(investor_profile['portfolio'][:5])}
+
+Web Sources:
+{chr(10).join([f"- {insight['title']}: {insight['snippet']}" for insight in web_insights[:3]])}
+
+Provide a concise, factual summary."""
+
+                    ai_summary = await llm_service.generate_simple_response(summary_prompt)
+                except Exception as summary_error:
+                    logger.warning(f"Could not generate AI summary: {summary_error}")
+                    ai_summary = None
+                    
+        except Exception as tavily_error:
+            logger.warning(f"Tavily search failed for {decoded_name}: {tavily_error}")
+            # Continue without web insights
+        
+        logger.info(f"Successfully retrieved details for {decoded_name}")
+        
+        return InvestorDetailResponse(
+            investor=investor_profile,
+            web_insights=web_insights,
+            ai_summary=ai_summary,
+            recent_news=recent_news
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching investor details: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error fetching investor details")
 

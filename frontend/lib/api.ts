@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios';
-import { QueryRequest, QueryResponse, Investor, ApiError } from './types';
+import { QueryRequest, QueryResponse, Investor, ApiError, InvestorDetailResponse, StartupDetailResponse } from './types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -16,6 +16,53 @@ export const queryAPI = {
     const response = await api.post('/api/query', request);
     return response.data;
   },
+  askStream: async (
+    request: QueryRequest,
+    onToken: (chunk: string) => void,
+    onFinal?: (final: { sources?: any[]; language?: string; metadata?: any }) => void,
+    onSources?: (sources: any[]) => void
+  ): Promise<void> => {
+    const res = await fetch(`${API_URL}/api/query/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+      body: JSON.stringify(request),
+    });
+    if (!res.body) return;
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() || '';
+      for (const part of parts) {
+        const line = part.trim();
+        if (!line.startsWith('data:')) continue;
+        const data = line.slice(5).trim();
+        if (!data) continue;
+        // Try to parse JSON event
+        if (data.startsWith('{')) {
+          try {
+            const payload = JSON.parse(data);
+            if (payload.type === 'final') {
+              if (onFinal) onFinal(payload);
+              continue; // Don't append JSON to answer
+            }
+            if (payload.type === 'sources' && onSources) {
+              onSources(payload.sources || []);
+              continue; // Don't append JSON to answer
+            }
+          } catch {
+            // Not valid JSON, treat as text token
+          }
+        }
+        // Regular text token
+        onToken(data);
+      }
+    }
+  }
 };
 
 export const investorsAPI = {
@@ -40,6 +87,12 @@ export const investorsAPI = {
     const response = await api.post('/api/investors/recommend', profile);
     return response.data;
   },
+
+  getDetails: async (investorName: string): Promise<InvestorDetailResponse> => {
+    const encodedName = encodeURIComponent(investorName);
+    const response = await api.get(`/api/investors/details/${encodedName}`);
+    return response.data;
+  },
 };
 
 export const startupsAPI = {
@@ -61,6 +114,12 @@ export const startupsAPI = {
         'Content-Type': 'multipart/form-data',
       },
     });
+    return response.data;
+  },
+
+  getDetails: async (startupName: string): Promise<StartupDetailResponse> => {
+    const encodedName = encodeURIComponent(startupName);
+    const response = await api.get(`/api/investor-thesis/startup-details/${encodedName}`);
     return response.data;
   },
 };

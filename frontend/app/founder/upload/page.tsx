@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import axios from 'axios';
 import Header from '@/components/Layout/Header';
+import ProtectedRoute from '@/components/Auth/ProtectedRoute';
 import { Upload, FileText, Loader, CheckCircle } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -104,6 +105,7 @@ export default function PitchDeckUploadPage() {
   const isLoading = uploadMutation.isPending || manualSubmitMutation.isPending;
 
   return (
+    <ProtectedRoute allowedRoles={['founder']}>
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <Header selectedLanguage="en" onLanguageChange={() => {}} />
 
@@ -654,5 +656,6 @@ export default function PitchDeckUploadPage() {
         )}
         </main>
     </div>
+    </ProtectedRoute>
   );
 }

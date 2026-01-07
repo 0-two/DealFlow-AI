@@ -9,8 +9,42 @@ from app.services.vector_store_service import vector_store_service
 from app.services.reranker_service import reranker_service
 from app.services.llm_service import llm_service
 from app.services.tavily_service import tavily_service
+from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
+
+# Simple conversational queries that don't need RAG retrieval or web sources
+SIMPLE_CONVERSATIONAL_PATTERNS = [
+    "hi", "hello", "hey", "good morning", "good afternoon", "good evening",
+    "how are you", "how do you do", "what's up", "what's new", "whats up",
+    "tell me about yourself", "who are you", "what are you", "what do you do",
+    "thanks", "thank you", "bye", "goodbye", "see you", "see you later",
+    "help", "what can you help", "how can you help", "what's your purpose",
+    "ok", "okay", "cool", "great", "nice", "awesome", "got it", "understood",
+    "can you speak", "do you speak", "talk to me", "speak english", "in english",
+    "change language", "switch to", "let's talk", "tell me"
+]
+
+
+def is_simple_conversational_query(query: str) -> bool:
+    """Check if query is a simple conversational query that doesn't need RAG"""
+    query_lower = query.lower().strip().rstrip('?!.')
+    
+    # Check exact matches
+    if query_lower in SIMPLE_CONVERSATIONAL_PATTERNS:
+        return True
+    
+    # Check if query starts with simple patterns
+    for pattern in SIMPLE_CONVERSATIONAL_PATTERNS:
+        if query_lower.startswith(pattern):
+            return True
+    
+    # Very short queries (1-2 words, ≤15 chars) are likely conversational
+    words = query_lower.split()
+    if len(words) <= 2 and len(query_lower) <= 15:
+        return True
+    
+    return False
 
 
 # Define workflow state
@@ -102,19 +136,24 @@ class RAGWorkflow:
         """Retrieve relevant documents from multiple collections"""
         try:
             query = state["translated_query"]
+            original_query = state["original_query"]
             
-            # Search across multiple collections
-            investors = await vector_store_service.hybrid_search(
-                "Investor", query, limit=10
-            )
-            deals = await vector_store_service.hybrid_search(
-                "FundingDeal", query, limit=10
-            )
-            policies = await vector_store_service.hybrid_search(
-                "PolicyDocument", query, limit=5
-            )
-            news = await vector_store_service.hybrid_search(
-                "NewsArticle", query, limit=5
+            # Skip retrieval for simple conversational queries
+            if is_simple_conversational_query(original_query) or is_simple_conversational_query(query):
+                logger.info("Skipping retrieval for simple conversational query")
+                state["retrieved_docs"] = []
+                state["metadata"] = {"query_type": "conversational", "retrieval_skipped": True}
+                return state
+            
+            # Search across multiple collections in parallel with smaller per-collection caps
+            per_collection = max(1, min(settings.RETRIEVAL_PER_COLLECTION, settings.TOP_K_RETRIEVAL))
+            investors_task = vector_store_service.hybrid_search("Investor", query, limit=per_collection)
+            deals_task = vector_store_service.hybrid_search("FundingDeal", query, limit=per_collection)
+            policies_task = vector_store_service.hybrid_search("PolicyDocument", query, limit=max(1, per_collection // 2))
+            news_task = vector_store_service.hybrid_search("NewsArticle", query, limit=max(1, per_collection // 2))
+
+            investors, deals, policies, news = await asyncio.gather(
+                investors_task, deals_task, policies_task, news_task, return_exceptions=False
             )
             
             # Combine all results
@@ -152,13 +191,15 @@ class RAGWorkflow:
             docs = state["reranked_docs"]
             query = state["translated_query"]
             
-            if not docs or not tavily_service.enabled:
+            # Skip verification if disabled or no docs
+            if not docs or not tavily_service.enabled or not settings.USE_SOURCE_VERIFICATION:
                 state["verified_sources"] = []
                 return state
             
             # Prepare sources for verification
             sources_to_verify = []
-            for doc in docs[:5]:  # Verify top 5 sources
+            top_verify = max(0, settings.VERIFY_TOP_SOURCES)
+            for doc in docs[:top_verify]:  # Verify only top-N sources
                 props = doc.get('properties', {})
                 content = props.get('content', '')
                 title = props.get(
@@ -198,7 +239,27 @@ class RAGWorkflow:
         """Generate answer using LLM with retrieved context"""
         try:
             query = state["translated_query"]
+            original_query = state["original_query"]
             docs = state["reranked_docs"]
+            
+            # Check if this is a simple conversational query - return no sources
+            if is_simple_conversational_query(original_query) or is_simple_conversational_query(query):
+                logger.info("Generating conversational response without sources")
+                result = await llm_service.generate_answer(
+                    query=query,
+                    context="",
+                    sources=[],
+                    language="en"
+                )
+                state["answer"] = result.get("answer", "Hello! How can I help you with startup funding today?")
+                state["sources"] = []  # No sources for conversational queries
+                state["context"] = ""
+                state["metadata"] = {
+                    "query_type": "conversational",
+                    "answer_type": "simple_response",
+                    "documents_used": 0
+                }
+                return state
             
             # Build context from documents
             context_parts = []
@@ -207,7 +268,10 @@ class RAGWorkflow:
             for i, doc in enumerate(docs, 1):
                 props = doc.get('properties', {})
                 content = props.get('content', '')
-                context_parts.append(f"[Document {i}]\n{content}\n")
+                # Trim document content to reduce tokens
+                max_chars = max(200, settings.RAG_CONTEXT_CHARS_PER_DOC)
+                trimmed = content[:max_chars]
+                context_parts.append(f"[Document {i}]\n{trimmed}\n")
                 
                 # Prepare source info
                 source_title = props.get(

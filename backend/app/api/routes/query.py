@@ -2,6 +2,7 @@
 Query API Routes for RAG system
 """
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Query as FastAPIQuery
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, validator
 from typing import Optional, Dict, List, Any
 import logging
@@ -9,6 +10,11 @@ import asyncio
 
 from app.rag.workflow import rag_workflow
 from app.services.tavily_service import tavily_service
+from app.services.vector_store_service import vector_store_service
+from app.services.reranker_service import reranker_service
+from app.services.llm_service import llm_service
+from app.config.settings import settings
+from app.rag.workflow import is_simple_conversational_query
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -91,6 +97,8 @@ async def process_query(request: QueryRequest) -> QueryResponse:
         HTTPException: If query processing fails
     """
     try:
+        import time
+        route_start = time.time()
         logger.info(f"Processing query: {request.query[:50]}...")
         
         # Validate query length
@@ -137,11 +145,17 @@ async def process_query(request: QueryRequest) -> QueryResponse:
             raise ValueError("Invalid workflow result structure")
         
         # Build response
+        # Attach processing time
+        total_ms = int((time.time() - route_start) * 1000)
+
         response = QueryResponse(
             answer=result.get("answer", "Unable to generate answer"),
             sources=result.get("sources", []),
             language=result.get("language", "en"),
-            metadata=result.get("metadata", {})
+            metadata={
+                **result.get("metadata", {}),
+                "processing_ms": total_ms,
+            }
         )
         
         logger.info(f"Query processed successfully. Retrieved {len(response.sources)} sources")
@@ -197,6 +211,122 @@ async def ping() -> Dict[str, str]:
         Pong message
     """
     return {"message": "pong"}
+
+
+@router.post("/stream")
+async def process_query_stream(request: QueryRequest):
+    """Stream generated answer tokens. SSE: each chunk as 'data: <text>\n\n'; final JSON with sources."""
+    if llm_service is None:
+        raise HTTPException(status_code=503, detail="LLM service unavailable")
+
+    try:
+        await asyncio.wait_for(query_semaphore.acquire(), timeout=30.0)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=503, detail="Server is busy. Please try again.")
+
+    async def event_stream():
+        import time
+        route_start = time.time()
+        try:
+            query = request.query.strip()
+            # Conversational short-circuit without retrieval
+            if is_simple_conversational_query(query):
+                async for token in llm_service.stream_answer(query=query, context="", sources=[], language=request.language or "en"):
+                    yield f"data: {token}\n\n"
+                final_meta = {
+                    "type": "final",
+                    "language": request.language or "en",
+                    "metadata": {"documents_used": 0, "processing_ms": int((time.time()-route_start)*1000)}
+                }
+                import json
+                yield f"data: {json.dumps(final_meta)}\n\n"
+                return
+
+            # Parallel retrieval with limits
+            per_collection = max(1, min(settings.RETRIEVAL_PER_COLLECTION, settings.TOP_K_RETRIEVAL))
+            investors_task = vector_store_service.hybrid_search("Investor", query, limit=per_collection)
+            deals_task = vector_store_service.hybrid_search("FundingDeal", query, limit=per_collection)
+            policies_task = vector_store_service.hybrid_search("PolicyDocument", query, limit=max(1, per_collection // 2))
+            news_task = vector_store_service.hybrid_search("NewsArticle", query, limit=max(1, per_collection // 2))
+
+            investors, deals, policies, news = await asyncio.gather(
+                investors_task, deals_task, policies_task, news_task
+            )
+
+            all_docs = investors + deals + policies + news
+            
+            # Run rerank and Tavily search in parallel
+            rerank_task = reranker_service.rerank(query, all_docs, top_k=settings.TOP_K_RERANK)
+            tavily_task = tavily_service.search(query, max_results=5) if tavily_service.enabled else None
+            
+            if tavily_task:
+                reranked, tavily_results = await asyncio.gather(rerank_task, tavily_task)
+            else:
+                reranked = await rerank_task
+                tavily_results = []
+
+            # Build context (trimmed)
+            context_parts = []
+            max_chars = max(200, settings.RAG_CONTEXT_CHARS_PER_DOC)
+            for i, doc in enumerate(reranked, 1):
+                props = doc.get('properties', {})
+                content = props.get('content', '')
+                trimmed = content[:max_chars]
+                context_parts.append(f"[Document {i}]\n{trimmed}\n")
+
+            context = "\n".join(context_parts)
+
+            # Prepare web sources
+            web_sources = []
+            try:
+                for idx, result in enumerate(tavily_results, 1):
+                    web_sources.append({
+                        "id": idx,
+                        "title": result.get("title", "Untitled"),
+                        "snippet": result.get("content", "")[:300],
+                        "url": result.get("url", ""),
+                        "type": "web",
+                        "score": result.get("score", 0),
+                        "published_date": result.get("published_date")
+                    })
+            except Exception as e:
+                import logging
+                logging.error(f"Tavily processing failed: {e}")
+            
+            # Send sources immediately before streaming answer
+            if web_sources:
+                sources_event = {
+                    "type": "sources",
+                    "sources": web_sources
+                }
+                import json
+                yield f"data: {json.dumps(sources_event)}\n\n"
+
+            # Stream tokens
+            async for token in llm_service.stream_answer(query=query, context=context, sources=[], language=request.language or "en"):
+                yield f"data: {token}\n\n"
+
+            final_meta = {
+                "type": "final",
+                "language": request.language or "en",
+                "metadata": {
+                    "retrieved_count": len(all_docs),
+                    "reranked_count": len(reranked),
+                    "web_sources_count": len(web_sources),
+                    "processing_ms": int((time.time()-route_start)*1000)
+                }
+            }
+            import json
+            yield f"data: {json.dumps(final_meta)}\n\n"
+        finally:
+            query_semaphore.release()
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers=headers)
 
 
 class TranslateRequest(BaseModel):

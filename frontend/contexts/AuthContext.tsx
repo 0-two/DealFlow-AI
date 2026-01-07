@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase, getUserProfile, signOut as supabaseSignOut, UserProfile } from '@/lib/supabase';
+import { supabase, getUserProfile, signOut as supabaseSignOut, UserProfile, isSupabaseConfigured } from '@/lib/supabase';
 import type { Session } from '@supabase/supabase-js';
 
 interface AuthContextType {
@@ -12,6 +12,7 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   switchRole: () => Promise<void>;
+  isConfigured: boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -21,6 +22,7 @@ const AuthContext = createContext<AuthContextType>({
   signOut: async () => {},
   refreshProfile: async () => {},
   switchRole: async () => {},
+  isConfigured: false,
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -31,6 +33,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let isMounted = true;
+
+    // If Supabase is not configured, stop loading immediately
+    if (!isSupabaseConfigured) {
+      console.warn('Supabase not configured, skipping auth initialization');
+      setLoading(false);
+      return;
+    }
 
     // Get initial session with timeout
     const initAuth = async () => {
@@ -100,41 +109,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loadUserProfile = async (userId: string) => {
     try {
       const userProfile = await getUserProfile(userId);
-      
       if (userProfile) {
-        // Check if remember me is still valid
-        if (userProfile.remember_me && userProfile.remember_me_expires) {
-          const expiresAt = new Date(userProfile.remember_me_expires);
-          if (expiresAt <= new Date()) {
-            // Remember me expired, sign out
-            await supabaseSignOut();
-            setProfile(null);
-            setLoading(false);
-            return;
-          }
-        } else if (!userProfile.remember_me) {
-          // No remember me, check if it's a new session
-          const lastLogin = localStorage.getItem('lastLogin');
-          const now = Date.now();
-          
-          if (lastLogin && now - parseInt(lastLogin) > 24 * 60 * 60 * 1000) {
-            // More than 24 hours since last login without remember me
-            await supabaseSignOut();
-            setProfile(null);
-            setLoading(false);
-            return;
-          }
-        }
-
         setProfile(userProfile);
         localStorage.setItem('userRole', userProfile.role);
         localStorage.setItem('userProfile', JSON.stringify(userProfile));
-        localStorage.setItem('lastLogin', Date.now().toString());
       }
     } catch (error) {
       console.error('Error loading user profile:', error);
     }
-    
     setLoading(false);
   };
 
@@ -155,17 +137,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem('userRole');
     localStorage.removeItem('userProfile');
     localStorage.removeItem('pendingRole');
+    localStorage.removeItem('pendingRememberMe');
     sessionStorage.removeItem('pendingRole');
+    sessionStorage.removeItem('pendingRememberMe');
     setProfile(null);
     setSession(null);
     // Sign out from Supabase
     await supabaseSignOut();
-    // Redirect to role select (not login, so they can choose a new role)
-    router.push('/role-select');
+    // Redirect to login where they can choose a new role
+    router.push('/login');
   };
 
   return (
-    <AuthContext.Provider value={{ session, profile, loading, signOut, refreshProfile, switchRole }}>
+    <AuthContext.Provider value={{ session, profile, loading, signOut, refreshProfile, switchRole, isConfigured: isSupabaseConfigured }}>
       {children}
     </AuthContext.Provider>
   );

@@ -4,6 +4,8 @@ Reranker Service using Jina Reranker v2 for re-ranking search results
 import requests
 from typing import List, Dict, Optional, Any
 import logging
+import time
+from collections import OrderedDict
 
 from app.config.settings import settings
 
@@ -20,6 +22,8 @@ class RerankerService:
         self.model = "jina-reranker-v2-base-multilingual"
         self.timeout = 30
         self.max_retries = 2
+        # Simple in-memory cache for rerank results
+        self._cache: "OrderedDict[str, tuple[float, List[Dict[str, Any]]]]" = OrderedDict()
         
         if not self.api_key:
             logger.warning("JINA_API_KEY not configured. Reranking will use fallback mechanism.")
@@ -50,7 +54,33 @@ class RerankerService:
             return self._fallback_rerank(documents, top_k)
         
         try:
-            return self._rerank_with_jina(query, documents, top_k)
+            # Build cache key using query + top_k + uuids if present
+            cache_key = None
+            if settings.CACHE_ENABLED and documents:
+                uuids = [d.get("uuid") for d in documents if d.get("uuid")]
+                if len(uuids) == len(documents):
+                    cache_key = f"{query.strip()}|{top_k}|{'|'.join(uuids)}"
+                    now = time.time()
+                    if cache_key in self._cache:
+                        ts, value = self._cache[cache_key]
+                        if now - ts <= settings.RERANK_CACHE_TTL_SECONDS:
+                            self._cache.move_to_end(cache_key)
+                            logger.debug("Rerank cache hit")
+                            return value
+
+            # Run blocking HTTP call in a thread to avoid blocking event loop
+            import asyncio
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None, lambda: self._rerank_with_jina(query, documents, top_k)
+            )
+            if cache_key:
+                self._cache[cache_key] = (time.time(), result)
+                self._cache.move_to_end(cache_key)
+                # trim cache
+                while len(self._cache) > 512:
+                    self._cache.popitem(last=False)
+            return result
         except Exception as e:
             logger.error(f"Jina reranking failed: {e}. Using fallback mechanism.")
             return self._fallback_rerank(documents, top_k)

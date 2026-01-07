@@ -34,6 +34,18 @@ class Settings(BaseSettings):
     TOP_K_RETRIEVAL: int = 20
     TOP_K_RERANK: int = 7
 
+    # Performance/Safety Flags
+    USE_SOURCE_VERIFICATION: bool = False
+    RETRIEVAL_PER_COLLECTION: int = 6
+    VERIFY_TOP_SOURCES: int = 3
+    RAG_CONTEXT_CHARS_PER_DOC: int = 1000
+
+    # Caching
+    CACHE_ENABLED: bool = True
+    SEARCH_CACHE_TTL_SECONDS: int = 60
+    SEARCH_CACHE_MAX_ENTRIES: int = 512
+    RERANK_CACHE_TTL_SECONDS: int = 60
+
     # Server Settings
     HOST: str = "0.0.0.0"
     PORT: int = 8000

@@ -6,6 +6,7 @@ import { investorsAPI } from '@/lib/api';
 import InvestorCard from '@/components/Investors/InvestorCard';
 import InvestorSearch from '@/components/Investors/InvestorSearch';
 import Header from '@/components/Layout/Header';
+import ProtectedRoute from '@/components/Auth/ProtectedRoute';
 import { LanguageCode } from '@/lib/types';
 import { Filter } from 'lucide-react';
 
@@ -38,6 +39,7 @@ export default function InvestorsPage() {
   }) || [];
 
   return (
+    <ProtectedRoute>
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <Header 
         selectedLanguage={selectedLanguage}
@@ -102,5 +104,6 @@ export default function InvestorsPage() {
         )}
       </main>
     </div>
+    </ProtectedRoute>
   );
 }

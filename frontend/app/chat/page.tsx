@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useMutation } from '@tanstack/react-query';
 import { queryAPI } from '@/lib/api';
 import { Message, LanguageCode } from '@/lib/types';
 import ChatInterface from '@/components/Chat/ChatInterface';
@@ -31,20 +30,7 @@ function ChatPageContent() {
     }
   }, [userRole]);
 
-  const queryMutation = useMutation({
-    mutationFn: queryAPI.ask,
-    onSuccess: (data) => {
-      const assistantMessage: Message = {
-        id: Date.now().toString(),
-        role: 'assistant',
-        content: data.answer,
-        language: data.language,
-        sources: data.sources,
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-    },
-  });
+  const [isStreaming, setIsStreaming] = useState(false);
 
   const handleSendMessage = async (query: string) => {
     // Add user message
@@ -57,11 +43,44 @@ function ChatPageContent() {
     };
     setMessages((prev) => [...prev, userMessage]);
 
-    // Send to API
-    queryMutation.mutate({
-      query,
+    // Placeholder assistant message to stream into
+    const streamId = `stream-${Date.now()}`;
+    const placeholder: Message = {
+      id: streamId,
+      role: 'assistant',
+      content: '',
       language: selectedLanguage,
-    });
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, placeholder]);
+    setIsStreaming(true);
+
+    await queryAPI.askStream(
+      { query, language: selectedLanguage },
+      (chunk) => {
+        // Ensure proper spacing between chunks
+        setMessages((prev) => prev.map(m => {
+          if (m.id === streamId) {
+            const currentContent = m.content;
+            // Add space before chunk if needed (not at start, not after space, not before punctuation)
+            const needsSpace = currentContent.length > 0 && 
+                             !currentContent.endsWith(' ') && 
+                             !currentContent.endsWith('\n') &&
+                             !/^[.,!?;:]/.test(chunk);
+            return { ...m, content: currentContent + (needsSpace ? ' ' : '') + chunk };
+          }
+          return m;
+        }));
+      },
+      (final) => {
+        setMessages((prev) => prev.map(m => m.id === streamId ? { ...m, language: final.language || m.language } : m));
+        setIsStreaming(false);
+      },
+      (sources) => {
+        // Update sources immediately when they arrive
+        setMessages((prev) => prev.map(m => m.id === streamId ? { ...m, sources } : m));
+      }
+    );
   };
 
   const roleBanner = userRole && (
@@ -92,7 +111,7 @@ function ChatPageContent() {
         <ChatInterface
           messages={messages}
           onSendMessage={handleSendMessage}
-          isLoading={queryMutation.isPending}
+          isLoading={isStreaming}
         />
       </main>
     </div>

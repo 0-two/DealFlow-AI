@@ -6,6 +6,7 @@ import { startupsAPI } from '@/lib/api';
 import StartupCard from '@/components/Startups/StartupCard';
 import StartupSearch from '@/components/Startups/StartupSearch';
 import Header from '@/components/Layout/Header';
+import ProtectedRoute from '@/components/Auth/ProtectedRoute';
 import { LanguageCode } from '@/lib/types';
 import { Filter } from 'lucide-react';
 
@@ -28,9 +29,15 @@ export default function StartupsPage() {
     }),
   });
 
-  const startups = data?.matches || [];
+  // Flatten the response - data comes as {profile: {...}, match_score, reasoning}
+  const startups = (data?.matches || []).map((item: any) => ({
+    ...item.profile,  // Flatten profile data to top level
+    match_score: item.match_score,
+    reasoning: item.reasoning,
+  }));
 
   return (
+    <ProtectedRoute>
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <Header 
         selectedLanguage={selectedLanguage}
@@ -95,5 +102,6 @@ export default function StartupsPage() {
         )}
       </main>
     </div>
+    </ProtectedRoute>
   );
 }
