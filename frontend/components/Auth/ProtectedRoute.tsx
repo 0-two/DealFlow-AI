@@ -16,10 +16,11 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
 
   useEffect(() => {
     if (!loading) {
-      if (!session || !profile) {
-        // Not authenticated, redirect to login
+      const cached = typeof window !== 'undefined' ? localStorage.getItem('userProfile') : null;
+      if ((!session || !profile) && !cached) {
+        // Not authenticated and no cached profile, redirect to login
         router.push('/login');
-      } else if (allowedRoles && !allowedRoles.includes(profile.role)) {
+      } else if (profile && allowedRoles && !allowedRoles.includes(profile.role)) {
         // Wrong role, redirect to appropriate page
         router.push('/chat');
       }
@@ -38,6 +39,18 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
   }
 
   if (!session || !profile) {
+    const cached = typeof window !== 'undefined' ? localStorage.getItem('userProfile') : null;
+    if (cached) {
+      // Show a lightweight loader while hydrating profile to avoid redirect flicker on refresh
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+          <div className="text-center">
+            <Loader className="w-12 h-12 animate-spin text-indigo-600 mx-auto mb-4" />
+            <p className="text-lg text-gray-700">Restoring your session…</p>
+          </div>
+        </div>
+      );
+    }
     return null;
   }
 

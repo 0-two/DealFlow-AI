@@ -13,6 +13,7 @@ from app.services.tavily_service import tavily_service
 from app.services.vector_store_service import vector_store_service
 from app.services.reranker_service import reranker_service
 from app.services.llm_service import llm_service
+from app.services.indictrans2_service import translation_service
 from app.config.settings import settings
 from app.rag.workflow import is_simple_conversational_query
 
@@ -26,7 +27,7 @@ query_semaphore = asyncio.Semaphore(MAX_CONCURRENT_QUERIES)
 
 class QueryRequest(BaseModel):
     """Query request model with validation"""
-    query: str = Field(..., min_length=3, max_length=1000, description="User query string")
+    query: str = Field(..., min_length=3, max_length=2000, description="User query string")
     language: Optional[str] = Field(None, description="Preferred response language code")
     filters: Optional[Dict[str, Any]] = Field(None, description="Optional filters for document retrieval")
     
@@ -229,13 +230,45 @@ async def process_query_stream(request: QueryRequest):
         route_start = time.time()
         try:
             query = request.query.strip()
+            
+            # Detect language from query if 'auto' or not provided
+            detected_lang = "en"
+            try:
+                if not request.language or request.language == "auto":
+                    detected_lang = await translation_service.detect_language(query)
+                    logger.info(f"Detected query language: {detected_lang}")
+                else:
+                    detected_lang = request.language
+            except Exception as e:
+                logger.error(f"Language detection failed: {e}, defaulting to 'en'")
+                detected_lang = "en"
+            
+            # Out-of-domain short-circuit without retrieval or sources
+            try:
+                if llm_service and hasattr(llm_service, "_is_out_of_domain_query") and llm_service._is_out_of_domain_query(query):
+                    refusal = (
+                        "I'm specialized in startup funding and entrepreneurship. "
+                        "This question is outside my scope of expertise. Please ask me about startups, investors, funding, or government schemes."
+                    )
+                    yield f"data: {refusal}\n\n"
+                    final_meta = {
+                        "type": "final",
+                        "language": detected_lang,
+                        "metadata": {"documents_used": 0, "processing_ms": int((time.time()-route_start)*1000)}
+                    }
+                    import json
+                    yield f"data: {json.dumps(final_meta)}\n\n"
+                    return
+            except Exception:
+                pass
+
             # Conversational short-circuit without retrieval
             if is_simple_conversational_query(query):
-                async for token in llm_service.stream_answer(query=query, context="", sources=[], language=request.language or "en"):
+                async for token in llm_service.stream_answer(query=query, context="", sources=[], language=detected_lang):
                     yield f"data: {token}\n\n"
                 final_meta = {
                     "type": "final",
-                    "language": request.language or "en",
+                    "language": detected_lang,
                     "metadata": {"documents_used": 0, "processing_ms": int((time.time()-route_start)*1000)}
                 }
                 import json
@@ -293,22 +326,29 @@ async def process_query_stream(request: QueryRequest):
                 import logging
                 logging.error(f"Tavily processing failed: {e}")
             
-            # Send sources immediately before streaming answer
-            if web_sources:
+            # Stream tokens FIRST (sources come after)
+            full_answer = ""
+            async for token in llm_service.stream_answer(query=query, context=context, sources=[], language=detected_lang):
+                yield f"data: {token}\n\n"
+                full_answer += token
+            
+            # Check if LLM couldn't help (out of expertise)
+            is_out_of_expertise = llm_service._is_out_of_expertise(full_answer)
+            
+            # Send sources AFTER answer completes (only if LLM could help)
+            if web_sources and not is_out_of_expertise:
                 sources_event = {
                     "type": "sources",
                     "sources": web_sources
                 }
                 import json
                 yield f"data: {json.dumps(sources_event)}\n\n"
-
-            # Stream tokens
-            async for token in llm_service.stream_answer(query=query, context=context, sources=[], language=request.language or "en"):
-                yield f"data: {token}\n\n"
+            elif is_out_of_expertise and web_sources:
+                logger.info(f"Skipping sources for out-of-expertise query: {query[:50]}...")
 
             final_meta = {
                 "type": "final",
-                "language": request.language or "en",
+                "language": detected_lang,
                 "metadata": {
                     "retrieved_count": len(all_docs),
                     "reranked_count": len(reranked),
@@ -442,6 +482,9 @@ class WebSearchRequest(BaseModel):
     """Request for web search"""
     query: str = Field(..., min_length=3, max_length=500, description="Search query")
     max_results: int = Field(default=5, ge=1, le=10, description="Maximum results to return")
+    exclude_urls: Optional[List[str]] = Field(default=None, description="URLs to exclude from results (already seen)")
+    page: Optional[int] = Field(default=None, ge=1, description="Page number for pagination")
+    page_size: Optional[int] = Field(default=None, ge=1, le=10, description="Results per page")
 
 
 class BackgroundCheckRequest(BaseModel):
@@ -515,10 +558,34 @@ async def web_search(request: WebSearchRequest) -> Dict[str, Any]:
         
         logger.info(f"Web search: {request.query[:50]}...")
         
-        results = await tavily_service.search(
+        # Determine effective size
+        effective_max = request.max_results
+        if request.page_size is not None:
+            effective_max = min(request.page_size, effective_max)
+
+        # Use cached search to reduce duplicates across pages
+        results = await tavily_service.search_cached(
             query=request.query,
-            max_results=request.max_results
+            max_results=effective_max,
+            exclude_urls=request.exclude_urls or []
         )
+
+        # If page provided without exclude_urls, simulate offset using cache
+        if (request.page is not None) and not request.exclude_urls:
+            # Fetch enough cached items to cover the page
+            offset = (request.page - 1) * effective_max
+            cached_all = tavily_service._get_cached_results(request.query) or []
+            # Top up cache if needed
+            if len(cached_all) < offset + effective_max:
+                extra = await tavily_service.search_cached(
+                    query=request.query,
+                    max_results=offset + effective_max - len(cached_all)
+                )
+                cached_all = tavily_service._get_cached_results(request.query) or []
+            # Slice the window
+            window = cached_all[offset: offset + effective_max]
+            if window:
+                results = window
         
         return {
             "success": True,

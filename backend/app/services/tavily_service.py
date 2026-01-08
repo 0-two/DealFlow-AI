@@ -5,6 +5,7 @@ import httpx
 from typing import List, Dict, Optional, Any
 import logging
 import asyncio
+import time
 from app.config.settings import settings
 from app.utils.logger import setup_logger
 
@@ -24,6 +25,10 @@ class TavilyService:
             self.api_key = settings.TAVILY_API_KEY
             self.base_url = "https://api.tavily.com"
             logger.info("TavilyService initialized successfully")
+
+        # Simple in-memory cache for search results per query
+        self._cache: Dict[str, Dict[str, Any]] = {}
+        self._cache_ttl_seconds: int = 300  # 5 minutes
     
     async def search(
         self,
@@ -78,10 +83,39 @@ class TavilyService:
             
             results = []
             for result in data.get("results", []):
+                # Clean content by removing image URLs and markdown image syntax
+                content = result.get("content", "")
+                # Remove markdown images: ![alt](url)
+                import re
+                content = re.sub(r'!\[.*?\]\(.*?\)', '', content)
+                # Remove standalone image URLs (common patterns)
+                content = re.sub(r'https?://[^\s]+\.(jpg|jpeg|png|gif|svg|webp)(\?[^\s]*)?', '', content, flags=re.IGNORECASE)
+                # Remove image markup remnants
+                content = re.sub(r'\[\s*Image\s+\d+\s*\]', '', content)
+                
+                # Remove anchor-only markdown links and site chrome (menus, login, settings, languages)
+                # 1) Drop any markdown link whose URL contains a '#'
+                content = re.sub(r'\[[^\]]*\]\([^)#]*#[^)\n]*\)', '', content)
+                # 2) Drop links with nav/auth keywords in text or URL
+                nav_kw = r"settings|privacy|login|logout|change\s+email|change\s+password|create\s+password|logo|regulatory|unable\s+to\s+log\s+in"
+                content = re.sub(rf'\[[^\]]*(?:{nav_kw})[^\]]*\]\([^)]+\)', '', content, flags=re.IGNORECASE)
+                content = re.sub(rf'\[[^\]]*\]\([^)]+(?:{nav_kw})[^)]*\)', '', content, flags=re.IGNORECASE)
+                # 3) Remove empty [](...) links
+                content = re.sub(r'\[\s*\]\([^)]+\)', '', content)
+                # 4) Remove bullet separators like " * " or leading bullets
+                content = re.sub(r'(\s[•*]\s)+', ' ', content)
+                content = re.sub(r'^[•*]\s+', '', content)
+                # 5) Remove language selector blocks heuristically: many bracket-links in a row
+                content = re.sub(r'(\[[^\]]+\]\([^)]+\)\s*){5,}', ' ', content)
+                # 6) Remove leftover multiple x/× close buttons
+                content = re.sub(r'\s*[×x]{1,2}\s*', ' ', content)
+                # Clean up extra whitespace
+                content = ' '.join(content.split())
+                
                 results.append({
                     "title": result.get("title", ""),
                     "url": result.get("url", ""),
-                    "content": result.get("content", ""),
+                    "content": content.strip(),
                     "score": result.get("score", 0.0),
                     "published_date": result.get("published_date"),
                 })
@@ -95,6 +129,64 @@ class TavilyService:
         except Exception as e:
             logger.error(f"Tavily search error: {str(e)}")
             return []
+
+    def _get_cached_results(self, query: str) -> Optional[List[Dict[str, Any]]]:
+        entry = self._cache.get(query)
+        if not entry:
+            return None
+        if time.time() - entry.get("timestamp", 0) > self._cache_ttl_seconds:
+            # expired
+            self._cache.pop(query, None)
+            return None
+        return entry.get("results", [])
+
+    def _set_cached_results(self, query: str, results: List[Dict[str, Any]]):
+        self._cache[query] = {"timestamp": time.time(), "results": results}
+
+    @staticmethod
+    def _merge_unique_by_url(existing: List[Dict[str, Any]], new_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        seen = {item.get("url") for item in existing if item.get("url")}
+        merged = existing[:]
+        for item in new_items:
+            url = item.get("url")
+            if url and url not in seen:
+                merged.append(item)
+                seen.add(url)
+        return merged
+
+    async def search_cached(
+        self,
+        query: str,
+        max_results: int = 5,
+        exclude_urls: Optional[List[str]] = None,
+        search_depth: str = "basic",
+        include_domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Cached search that aggregates unique results per query and supports exclusions."""
+        if not self.enabled:
+            return []
+
+        cached = self._get_cached_results(query) or []
+        # Filter cached by exclude_urls if provided
+        filtered_cached = [r for r in cached if not exclude_urls or r.get("url") not in set(exclude_urls)]
+        if len(filtered_cached) >= max_results:
+            return filtered_cached[:max_results]
+
+        # Not enough in cache, fetch more and merge
+        fetched = await self.search(
+            query=query,
+            max_results=max_results,
+            search_depth=search_depth,
+            include_domains=include_domains,
+            exclude_domains=exclude_domains,
+        )
+        merged = self._merge_unique_by_url(cached, fetched)
+        self._set_cached_results(query, merged)
+
+        # Recompute filtered after merge
+        filtered = [r for r in merged if not exclude_urls or r.get("url") not in set(exclude_urls)]
+        return filtered[:max_results]
     
     async def verify_source(
         self,

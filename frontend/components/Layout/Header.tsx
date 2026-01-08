@@ -9,8 +9,8 @@ import { useTranslationContext } from '@/contexts/TranslationContext';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface Props {
-  selectedLanguage?: LanguageCode;
-  onLanguageChange?: (lang: LanguageCode) => void;
+  selectedLanguage?: LanguageCode; // deprecated
+  onLanguageChange?: (lang: LanguageCode) => void; // deprecated
 }
 
 export default function Header({ selectedLanguage, onLanguageChange }: Props) {
@@ -18,10 +18,10 @@ export default function Header({ selectedLanguage, onLanguageChange }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const { session, profile, signOut: authSignOut, switchRole } = useAuth();
-  const { language, changeLanguage, t, isTranslating } = useTranslationContext();
+  const { t } = useTranslationContext();
   
   // Use context language if no prop provided
-  const currentLang = selectedLanguage || language;
+  const currentLang = selectedLanguage;
 
   const userRole = profile?.role;
 
@@ -30,20 +30,21 @@ export default function Header({ selectedLanguage, onLanguageChange }: Props) {
     const commonItems = [
       { name: t('nav.ai_chat') || 'Chat', path: '/chat' },
       { name: 'Trends', path: '/trends' },
-      { name: 'Policies', path: '/policies' },
     ];
 
-    const roleSpecificItems = [];
+    const roleSpecificItems: { name: string; path: string }[] = [];
     
     if (userRole === 'founder') {
       roleSpecificItems.push(
         { name: 'Upload Pitch', path: '/founder/upload' },
-        { name: 'Investors', path: '/investors' }
+        { name: 'Investors', path: '/investors' },
+        { name: 'Policies', path: '/policies' },
       );
     } else if (userRole === 'investor') {
       roleSpecificItems.push(
         { name: 'My Thesis', path: '/investor/thesis' },
-        { name: 'Startups', path: '/startups' }
+        { name: 'Startups', path: '/startups' },
+        { name: 'News', path: '/news' },
       );
     }
 
@@ -80,7 +81,7 @@ export default function Header({ selectedLanguage, onLanguageChange }: Props) {
           <Link href="/" className="flex items-center gap-2">
             <Sparkles className="w-8 h-8 text-indigo-600" />
             <span className="text-xl font-bold text-gray-900 hidden sm:block">
-              Funding Intelligence
+              DealFlow AI
             </span>
           </Link>
 
@@ -104,28 +105,8 @@ export default function Header({ selectedLanguage, onLanguageChange }: Props) {
             })}
           </nav>
 
-          {/* Right side - Language & Logout */}
+          {/* Right side */}
           <div className="hidden md:flex items-center gap-3">
-            {/* Translation Loading Indicator */}
-            {isTranslating && (
-              <Loader className="w-4 h-4 animate-spin text-indigo-600" />
-            )}
-            
-            {/* Language Selector */}
-            <Globe className="w-5 h-5 text-gray-500" />
-            <select
-              value={currentLang}
-              onChange={handleLanguageChange}
-              disabled={isTranslating}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none text-sm disabled:opacity-50"
-            >
-              {Object.entries(LANGUAGES).map(([code, name]) => (
-                <option key={code} value={code}>
-                  {name}
-                </option>
-              ))}
-            </select>
-
             {/* Role Badge & Switch Role */}
             {userRole && (
               <div className="flex items-center gap-2">
@@ -175,24 +156,7 @@ export default function Header({ selectedLanguage, onLanguageChange }: Props) {
               })}
             </nav>
 
-            {/* Mobile Language Selector */}
-            <div className="flex items-center gap-2 mb-3">
-              {isTranslating && (
-                <Loader className="w-4 h-4 animate-spin text-indigo-600" />
-              )}
-              <select
-                value={currentLang}
-                onChange={handleLanguageChange}
-                disabled={isTranslating}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none disabled:opacity-50"
-              >
-                {Object.entries(LANGUAGES).map(([code, name]) => (
-                  <option key={code} value={code}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Mobile role & switch remains below */}
 
             {/* Mobile Role & Switch Role */}
             {userRole && (

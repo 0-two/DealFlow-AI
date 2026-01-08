@@ -1,34 +1,42 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { queryAPI } from '@/lib/api';
 import { Message, LanguageCode } from '@/lib/types';
-import ChatInterface from '@/components/Chat/ChatInterface';
 import Header from '@/components/Layout/Header';
 import ProtectedRoute from '@/components/Auth/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
+import MessageBubble from '@/components/Chat/MessageBubble';
+import InputBox from '@/components/Chat/InputBox';
+import { Sparkles } from 'lucide-react';
 
 function ChatPageContent() {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [selectedLanguage, setSelectedLanguage] = useState<LanguageCode>('hi');
+  const [selectedLanguage] = useState<LanguageCode>('en');
   const { profile } = useAuth();
   const userRole = profile?.role;
+  const storageKey = useMemo(() => `chatMessages_${userRole || 'default'}`, [userRole]);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Load from localStorage on mount per role
   useEffect(() => {
-    if (userRole) {
-      // Add welcome message based on role
-      const welcomeMessage: Message = {
-        id: 'welcome',
-        role: 'assistant',
-        content: userRole === 'founder' 
-          ? 'Hello! I\'m here to help you with funding insights, investor information, and government schemes. Ask me anything about your startup journey!'
-          : 'Hello! I\'m here to help you discover promising startups, analyze funding trends, and provide investment insights. How can I assist you today?',
-        language: 'en',
-        timestamp: new Date(),
-      };
-      setMessages([welcomeMessage]);
-    }
-  }, [userRole]);
+    if (!userRole) return;
+    try {
+      const cached = localStorage.getItem(storageKey);
+      if (cached) {
+        const parsed: Message[] = JSON.parse(cached);
+        setMessages(parsed);
+      }
+    } catch {}
+  }, [userRole, storageKey]);
+
+  // Persist messages per role
+  useEffect(() => {
+    if (!userRole) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(messages));
+    } catch {}
+  }, [messages, storageKey, userRole]);
 
   const [isStreaming, setIsStreaming] = useState(false);
 
@@ -38,7 +46,7 @@ function ChatPageContent() {
       id: Date.now().toString(),
       role: 'user',
       content: query,
-      language: selectedLanguage,
+      language: 'auto', // Let backend detect language
       timestamp: new Date(),
     };
     setMessages((prev) => [...prev, userMessage]);
@@ -49,14 +57,14 @@ function ChatPageContent() {
       id: streamId,
       role: 'assistant',
       content: '',
-      language: selectedLanguage,
+      language: 'auto', // Will be updated when final event arrives
       timestamp: new Date(),
     };
     setMessages((prev) => [...prev, placeholder]);
     setIsStreaming(true);
 
     await queryAPI.askStream(
-      { query, language: selectedLanguage },
+      { query, language: 'auto' }, // Let backend detect and respond in same language
       (chunk) => {
         // Ensure proper spacing between chunks
         setMessages((prev) => prev.map(m => {
@@ -77,7 +85,7 @@ function ChatPageContent() {
         setIsStreaming(false);
       },
       (sources) => {
-        // Update sources immediately when they arrive
+        // Sources now come after answer completes (no delay needed)
         setMessages((prev) => prev.map(m => m.id === streamId ? { ...m, sources } : m));
       }
     );
@@ -99,20 +107,64 @@ function ChatPageContent() {
     </div>
   );
 
+  const displayName = profile?.full_name || (profile?.email ? profile.email.split('@')[0] : 'there');
+  const greetingBanner = (
+    <div className="bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-indigo-100 px-4 py-3">
+      <div className="max-w-5xl mx-auto">
+        <p className="text-lg text-gray-800">
+          <span className="font-semibold text-indigo-700">Hello, {displayName}!</span>
+          {' '}
+          {userRole === 'founder' 
+            ? 'I\'m here to help you with funding insights, investor information, and government schemes.'
+            : 'I\'m here to help you discover promising startups, analyze funding trends, and provide investment insights.'}
+        </p>
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex flex-col h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <Header 
-        selectedLanguage={selectedLanguage}
-        onLanguageChange={setSelectedLanguage}
-      />
+      <Header />
       {roleBanner}
+      {greetingBanner}
       
       <main className="flex-1 overflow-hidden">
-        <ChatInterface
-          messages={messages}
-          onSendMessage={handleSendMessage}
-          isLoading={isStreaming}
-        />
+        <div className="flex flex-col h-full max-w-5xl mx-auto px-4">
+          {messages.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center">
+              <div className="text-center">
+                <Sparkles className="w-16 h-16 mx-auto mb-4 text-indigo-600" />
+                <h1 className="text-4xl font-bold text-gray-800 mb-2">
+                  DealFlow AI
+                </h1>
+                <p className="text-gray-600 text-lg">
+                  Ask me anything about investors, funding trends, or government schemes
+                </p>
+                <p className="text-gray-500 mt-2">
+                  अपनी भाषा में पूछें | Ask in your language
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto py-6 space-y-6">
+              {messages.map((m) => (
+                <MessageBubble key={m.id} message={m} />
+              ))}
+              {isStreaming && (
+                <div className="flex items-center space-x-2 text-gray-500">
+                  <div className="animate-bounce">●</div>
+                  <div className="animate-bounce delay-100">●</div>
+                  <div className="animate-bounce delay-200">●</div>
+                </div>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+          )}
+
+          <div className="pb-6">
+            <InputBox onSend={handleSendMessage} isLoading={isStreaming} />
+          </div>
+        </div>
       </main>
     </div>
   );

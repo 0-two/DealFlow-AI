@@ -1,264 +1,176 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Header from '@/components/Layout/Header';
 import ProtectedRoute from '@/components/Auth/ProtectedRoute';
 import { LanguageCode } from '@/lib/types';
-import { Building, CheckCircle, Calendar, ExternalLink } from 'lucide-react';
+import { Building, ChevronDown, ChevronUp, ExternalLink, Globe2, Loader2, MessageCircle } from 'lucide-react';
+import { queryAPI } from '@/lib/api';
 
-interface Policy {
-  id: string;
-  scheme_name: string;
-  authority: string;
-  sector: string;
-  description: string;
-  eligibility: string[];
-  benefits: string[];
-  deadline?: string;
-  source_url?: string;
-}
+type WebResult = {
+  title: string;
+  url: string;
+  content: string;
+  score?: number;
+  published_date?: string | null;
+};
 
-// Sample policies data
-const SAMPLE_POLICIES: Policy[] = [
-  {
-    id: '1',
-    scheme_name: 'Startup India Seed Fund Scheme (SISFS)',
-    authority: 'Government of India',
-    sector: 'All Sectors',
-    description: 'Provides financial assistance to startups for proof of concept, prototype development, product trials, market entry, and commercialization.',
-    eligibility: [
-      'DPIIT recognized startups',
-      'Incorporated not more than 2 years ago',
-      'Have an innovative idea',
-      'Need funding for scale-up'
-    ],
-    benefits: [
-      'Seed funding up to ₹5 Crore',
-      'Mentorship and guidance',
-      'Access to incubation facilities',
-      'Networking opportunities'
-    ]
-  },
-  {
-    id: '2',
-    scheme_name: 'Pradhan Mantri Mudra Yojana (PMMY)',
-    authority: 'Government of India',
-    sector: 'Micro Enterprises',
-    description: 'Provides loans up to ₹10 Lakhs to non-corporate, non-farm small/micro enterprises.',
-    eligibility: [
-      'Indian citizen',
-      'Non-corporate, non-farm enterprise',
-      'Business activity in manufacturing, trading, or services',
-      'Credit facility from banks/financial institutions'
-    ],
-    benefits: [
-      'Shishu: Up to ₹50,000',
-      'Kishore: ₹50,001 to ₹5 Lakhs',
-      'Tarun: ₹5,00,001 to ₹10 Lakhs',
-      'No collateral required for loans up to ₹10 Lakhs'
-    ],
-    source_url: 'https://www.mudra.org.in'
-  },
-  {
-    id: '3',
-    scheme_name: 'Karnataka Elevate Program',
-    authority: 'Government of Karnataka',
-    sector: 'Technology',
-    description: 'Provides grants to tech startups in Karnataka for product development and scaling.',
-    eligibility: [
-      'Startups registered in Karnataka',
-      'Working on innovative tech products',
-      'At least 51% of founders should be from Karnataka or settled in Karnataka'
-    ],
-    benefits: [
-      'Grant of up to ₹50 Lakhs',
-      'No equity dilution',
-      'Mentorship and networking opportunities'
-    ],
-    deadline: '2025-03-31',
-    source_url: 'https://elevate.karnataka.gov.in'
-  }
-];
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export default function PoliciesPage() {
   const [selectedLanguage, setSelectedLanguage] = useState<LanguageCode>('en');
-  const [selectedSector, setSelectedSector] = useState('all');
-  const [selectedPolicy, setSelectedPolicy] = useState<Policy | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [results, setResults] = useState<WebResult[]>([]);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [aiInput, setAiInput] = useState<Record<string, string>>({});
+  const [aiAnswer, setAiAnswer] = useState<Record<string, string>>({});
+  const [aiLoading, setAiLoading] = useState<Record<string, boolean>>({});
 
-  const sectors = ['all', 'All Sectors', 'Technology', 'Biotech / Healthcare', 'Micro Enterprises'];
-
-  const filteredPolicies = SAMPLE_POLICIES.filter(policy => 
-    selectedSector === 'all' || policy.sector === selectedSector
+  const query = useMemo(
+    () =>
+      'Indian government startup policies and schemes for founders site:startupindia.gov.in OR site:dpiit.gov.in OR site:investindia.gov.in OR site:mygov.in',
+    []
   );
+
+  useEffect(() => {
+    const run = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`${API_URL}/api/query/web-search`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, max_results: 10 }),
+        });
+        if (!res.ok) throw new Error('Failed to fetch policies');
+        const data = await res.json();
+        setResults((data?.results || []).filter((r: WebResult) => r.title && r.url));
+      } catch (e: any) {
+        setError(e?.message || 'Something went wrong');
+      } finally {
+        setLoading(false);
+      }
+    };
+    run();
+  }, [query]);
+
+  const onAskAI = async (id: string, item: WebResult) => {
+    const prompt = aiInput[id];
+    if (!prompt) return;
+    setAiLoading((s) => ({ ...s, [id]: true }));
+    setAiAnswer((s) => ({ ...s, [id]: '' }));
+    try {
+      const snippet = (item.content || '').slice(0, 600);
+      let userQuery = `About this policy: ${item.title}\nURL: ${item.url}\nSnippet: ${snippet}\n\nQuestion: ${prompt}`;
+      if (userQuery.length > 1800) userQuery = userQuery.slice(0, 1800);
+      await queryAPI.askStream(
+        {
+          query: userQuery,
+          language: selectedLanguage,
+        },
+        (chunk) => setAiAnswer((s) => ({ ...s, [id]: (s[id] || '') + chunk })),
+        () => setAiLoading((s) => ({ ...s, [id]: false }))
+      );
+    } catch (e) {
+      setAiLoading((s) => ({ ...s, [id]: false }));
+    }
+  };
 
   return (
     <ProtectedRoute>
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <Header 
-        selectedLanguage={selectedLanguage}
-        onLanguageChange={setSelectedLanguage}
-      />
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+        <Header selectedLanguage={selectedLanguage} onLanguageChange={setSelectedLanguage} />
 
-      <main className="max-w-7xl mx-auto px-4 py-8">
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">
-            Government Schemes & Policies
-          </h1>
-          <p className="text-gray-600">
-            Discover funding opportunities and support programs for startups
-          </p>
-        </div>
+        <main className="max-w-5xl mx-auto px-4 py-8">
+          <div className="mb-6">
+            <h1 className="text-3xl font-bold text-gray-900 mb-1">Government Policies for Founders</h1>
+            <p className="text-gray-600">Curated from official Indian government sources</p>
+          </div>
 
-        {/* Filter */}
-        <div className="bg-white rounded-xl shadow-md p-6 mb-8">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Filter by Sector
-          </label>
-          <select
-            value={selectedSector}
-            onChange={(e) => setSelectedSector(e.target.value)}
-            className="w-full md:w-64 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
-          >
-            {sectors.map((sector) => (
-              <option key={sector} value={sector}>{sector}</option>
-            ))}
-          </select>
-        </div>
+          {loading && (
+            <div className="flex items-center gap-2 text-gray-600"><Loader2 className="w-5 h-5 animate-spin"/> Loading policies…</div>
+          )}
+          {error && (
+            <div className="bg-red-50 text-red-700 border border-red-200 rounded-lg p-3 mb-4">{error}</div>
+          )}
 
-        {/* Policy Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {filteredPolicies.map((policy) => (
-            <div
-              key={policy.id}
-              className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow p-6 border border-gray-200 cursor-pointer"
-              onClick={() => setSelectedPolicy(policy)}
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
-                    <Building className="w-6 h-6 text-indigo-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-gray-900 text-lg">
-                      {policy.scheme_name}
-                    </h3>
-                    <p className="text-sm text-gray-600">{policy.authority}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mb-4">
-                <span className="px-3 py-1 bg-purple-100 text-purple-700 text-sm rounded-full">
-                  {policy.sector}
-                </span>
-              </div>
-
-              <p className="text-gray-700 mb-4 line-clamp-3">
-                {policy.description}
-              </p>
-
-              <div className="space-y-2 mb-4">
-                <p className="text-sm font-semibold text-gray-700">Key Benefits:</p>
-                <ul className="space-y-1">
-                  {policy.benefits.slice(0, 2).map((benefit, index) => (
-                    <li key={index} className="text-sm text-gray-600 flex items-start gap-2">
-                      <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                      <span>{benefit}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              {policy.deadline && (
-                <div className="flex items-center gap-2 text-sm text-orange-600 mb-4">
-                  <Calendar className="w-4 h-4" />
-                  <span>Deadline: {policy.deadline}</span>
-                </div>
-              )}
-              <button className="w-full py-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors font-medium">
-                View Details
-              </button>
-            </div>
-          ))}
-        </div>
-
-        {/* Policy Details Modal */}
-        {selectedPolicy && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-              <div className="p-6">
-                <div className="flex items-start justify-between mb-6">
-                  <div>
-                    <h2 className="text-2xl font-bold text-gray-900 mb-2">
-                      {selectedPolicy.scheme_name}
-                    </h2>
-                    <p className="text-gray-600">{selectedPolicy.authority}</p>
-                  </div>
-                  <button
-                    onClick={() => setSelectedPolicy(null)}
-                    className="text-gray-400 hover:text-gray-600 text-2xl"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <div className="space-y-6">
-                  <div>
-                    <h3 className="font-semibold text-gray-900 mb-2">Description</h3>
-                    <p className="text-gray-700">{selectedPolicy.description}</p>
+          <div className="flex flex-col gap-4">
+            {results.map((item, idx) => {
+              const id = `${idx}-${item.url}`;
+              const isOpen = expanded === id;
+              const hostname = (() => { try { return new URL(item.url).hostname; } catch { return ''; } })();
+              return (
+                <div key={id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="p-5 flex flex-col gap-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-lg font-semibold text-indigo-700 hover:underline flex-1">
+                        {item.title}
+                      </a>
+                      <button
+                        onClick={() => setExpanded(isOpen ? null : id)}
+                        className="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50 flex items-center gap-1"
+                      >
+                        {isOpen ? <ChevronUp className="w-4 h-4"/> : <ChevronDown className="w-4 h-4"/>}
+                        {isOpen ? 'Collapse' : 'Expand'}
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-gray-500">
+                      <Globe2 className="w-4 h-4"/>
+                      <span>{hostname}</span>
+                      {item.published_date && <span>• {new Date(item.published_date).toLocaleDateString()}</span>}
+                    </div>
+                    <p className="text-gray-700 line-clamp-2">{item.content}</p>
                   </div>
 
-                  <div>
-                    <h3 className="font-semibold text-gray-900 mb-3">Eligibility Criteria</h3>
-                    <ul className="space-y-2">
-                      {selectedPolicy.eligibility.map((criterion, index) => (
-                        <li key={index} className="flex items-start gap-2 text-gray-700">
-                          <CheckCircle className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
-                          <span>{criterion}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                  {isOpen && (
+                    <div className="border-t border-gray-200 p-5 bg-gray-50">
+                      <p className="text-gray-800 mb-3">{item.content}</p>
+                      <div className="mt-4">
+                        <label className="text-sm font-medium text-gray-700">Ask AI about this policy</label>
+                        <div className="mt-2 flex gap-2">
+                          <input
+                            value={aiInput[id] || ''}
+                            onChange={(e) => setAiInput((s) => ({ ...s, [id]: e.target.value }))}
+                            placeholder="e.g., Am I eligible? How to apply?"
+                            className="flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                          />
+                          <button
+                            onClick={() => onAskAI(id, item)}
+                            disabled={aiLoading[id] || !(aiInput[id] || '').trim()}
+                            className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2"
+                          >
+                            <MessageCircle className="w-4 h-4"/>
+                            Ask
+                          </button>
+                        </div>
+                        {(aiAnswer[id] || aiLoading[id]) && (
+                          <div className="mt-3 bg-white border rounded-lg p-3 text-sm text-gray-800 min-h-[48px]">
+                            {aiLoading[id] && <span className="text-gray-500">Thinking…</span>}
+                            <span>{aiAnswer[id]}</span>
+                          </div>
+                        )}
+                      </div>
 
-                  <div>
-                    <h3 className="font-semibold text-gray-900 mb-3">Benefits</h3>
-                    <ul className="space-y-2">
-                      {selectedPolicy.benefits.map((benefit, index) => (
-                        <li key={index} className="flex items-start gap-2 text-gray-700">
-                          <CheckCircle className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
-                          <span>{benefit}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  {selectedPolicy.deadline && (
-                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                      <div className="flex items-center gap-2 text-orange-700">
-                        <Calendar className="w-5 h-5" />
-                        <p className="font-semibold">Application Deadline: {selectedPolicy.deadline}</p>
+                      <div className="mt-4">
+                        <a
+                          href={item.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 text-indigo-600 hover:text-indigo-700 font-medium"
+                        >
+                          <ExternalLink className="w-4 h-4"/>
+                          Open official policy page
+                        </a>
                       </div>
                     </div>
                   )}
-
-                  {selectedPolicy.source_url && (
-                    <a
-                      href={selectedPolicy.source_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 text-indigo-600 hover:text-indigo-700 font-medium"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                      Visit Official Website
-                    </a>
-                  )}
                 </div>
-              </div>
-            </div>
+              );
+            })}
           </div>
-        )}
-      </main>
-    </div>
+        </main>
+      </div>
     </ProtectedRoute>
   );
 }

@@ -41,6 +41,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    // Hydrate from localStorage early to reduce redirect flicker on refresh
+    try {
+      const cached = typeof window !== 'undefined' ? localStorage.getItem('userProfile') : null;
+      if (cached) {
+        const parsed = JSON.parse(cached) as UserProfile;
+        setProfile(parsed);
+      }
+    } catch {}
+
     // Get initial session with timeout
     const initAuth = async () => {
       try {
@@ -73,7 +82,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const timeoutId = setTimeout(() => {
       if (isMounted && loading) {
         console.warn('Auth initialization timed out');
-        setLoading(false);
+        // If we have a cached profile, keep a softer loading state to avoid redirect flicker
+        const cached = typeof window !== 'undefined' ? localStorage.getItem('userProfile') : null;
+        if (!cached) setLoading(false);
       }
     }, 5000);
 
