@@ -18,7 +18,7 @@ export default function Header({ selectedLanguage, onLanguageChange }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const { session, profile, signOut: authSignOut, switchRole } = useAuth();
-  const { t } = useTranslationContext();
+  const { t, changeLanguage } = useTranslationContext();
   
   // Use context language if no prop provided
   const currentLang = selectedLanguage;
@@ -29,7 +29,6 @@ export default function Header({ selectedLanguage, onLanguageChange }: Props) {
   const getNavItems = () => {
     const commonItems = [
       { name: t('nav.ai_chat') || 'Chat', path: '/chat' },
-      { name: 'Trends', path: '/trends' },
     ];
 
     const roleSpecificItems: { name: string; path: string }[] = [];
