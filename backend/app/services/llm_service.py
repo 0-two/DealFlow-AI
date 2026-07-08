@@ -80,6 +80,14 @@ class LLMService:
                 "language": language
             }
         
+        # Refuse out-of-domain questions early
+        if self._is_out_of_domain_query(query):
+            refusal = (
+                "I'm specialized in startup funding and entrepreneurship. "
+                "This question is outside my scope of expertise. Please ask me about startups, investors, funding, or government schemes."
+            )
+            return {"answer": refusal, "sources": [], "language": language, "mode": "refusal"}
+        
         # Handle simple conversational queries
         if self._is_simple_conversational_query(query):
             return await self._generate_simple_response(query, language)
@@ -107,14 +115,6 @@ class LLMService:
                 "sources": [],
                 "language": language
             }
-        
-            # Refuse out-of-domain questions early
-            if self._is_out_of_domain_query(query):
-                refusal = (
-                    "I'm specialized in startup funding and entrepreneurship. "
-                    "This question is outside my scope of expertise. Please ask me about startups, investors, funding, or government schemes."
-                )
-                return {"answer": refusal, "sources": [], "language": language, "mode": "refusal"}
     
     def _assess_context_quality(self, query: str, context: str, sources: List[Dict]) -> int:
         """Assess if retrieved context is relevant to the query"""
@@ -284,6 +284,15 @@ class LLMService:
 
     async def stream_answer(self, query: str, context: str, sources: List[Dict], language: str = "en") -> AsyncIterator[str]:
         """Stream answer with cleaned prompts. Returns metadata about expertise."""
+        # Refuse out-of-domain questions early
+        if self._is_out_of_domain_query(query):
+            refusal = (
+                "I'm specialized in startup funding and entrepreneurship. "
+                "This question is outside my scope of expertise. Please ask me about startups, investors, funding, or government schemes."
+            )
+            yield refusal
+            return
+
         # Conversational fast path
         if self._is_simple_conversational_query(query):
             simple = (await self._generate_simple_response(query, language)).get("answer", "Hello")
@@ -336,15 +345,6 @@ class LLMService:
                 yield token
         except Exception as e:
             yield f"[stream_error] {str(e)}"
-
-            # Refuse out-of-domain questions early (no sources should be sent by caller)
-            if self._is_out_of_domain_query(query):
-                refusal = (
-                    "I'm specialized in startup funding and entrepreneurship. "
-                    "This question is outside my scope of expertise. Please ask me about startups, investors, funding, or government schemes."
-                )
-                yield refusal
-                return
 
     def _is_out_of_expertise(self, answer: str) -> bool:
         """

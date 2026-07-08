@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     WEAVIATE_API_KEY: str
     JINA_API_KEY: str
     
+    # Bhashini settings
+    BHASHINI_API_KEY: Optional[str] = None
+    BHASHINI_USER_ID: Optional[str] = None
+    BHASHINI_API_KEY_ULC: Optional[str] = None
+    
     # IndicTrans2 Settings (NEW)
     INDICTRANS2_MODEL_DIR: str = "./models/indictrans2"
     INDICTRANS2_DEVICE: str = "cuda"  # or "cpu"
