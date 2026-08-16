@@ -1,4 +1,4 @@
-# DealFlow AI Backend
+# DealFlow AI 
 
 FastAPI backend for AI-powered deal flow management and analysis using RAG (Retrieval-Augmented Generation).
 
