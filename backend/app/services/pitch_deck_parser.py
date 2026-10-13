@@ -3,7 +3,7 @@ from llama_index.core import SimpleDirectoryReader
 import io
 import logging
 from typing import Dict, Optional
-import google.generativeai as genai
+from openai import AsyncOpenAI
 from app.config.settings import settings
 import tempfile
 import os
@@ -25,9 +25,14 @@ class EnhancedPitchDeckParser:
             language="en"  # Primary language
         )
         
-        # Initialize Gemini for structuring
-        genai.configure(api_key=settings.GOOGLE_API_KEY)
-        self.model = genai.GenerativeModel(settings.GEMINI_MODEL)
+        self.client = AsyncOpenAI(
+            api_key=settings.OPENROUTER_API_KEY,
+            base_url=settings.OPENROUTER_BASE_URL,
+            default_headers={
+                "HTTP-Referer": settings.OPENROUTER_SITE_URL,
+                "X-Title": settings.OPENROUTER_APP_NAME,
+            },
+        )
         
         logger.info("Enhanced PitchDeckParser initialized with LlamaParse")
     
@@ -89,7 +94,7 @@ class EnhancedPitchDeckParser:
     
     async def _extract_structured_info(self, text: str) -> Dict:
         """
-        Use Gemini to extract structured information from parsed text
+        Use OpenRouter to extract structured information from parsed text
         Enhanced with better prompting for comprehensive extraction
         """
         
@@ -144,15 +149,14 @@ IMPORTANT: Return ONLY valid JSON, no markdown formatting, no explanations.
 JSON:"""
         
         try:
-            response = self.model.generate_content(
-                prompt,
-                generation_config={
-                    "temperature": 0.1,  # Low temperature for consistent extraction
-                    "max_output_tokens": 2048,
-                }
+            response = await self.client.chat.completions.create(
+                model=settings.OPENROUTER_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=2048,
             )
-            
-            response_text = response.text.strip()
+
+            response_text = response.choices[0].message.content.strip()
             
             # Clean up response
             if response_text.startswith("```json"):
