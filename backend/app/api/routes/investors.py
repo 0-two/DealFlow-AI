@@ -111,24 +111,24 @@ async def search_investors(
         query = " ".join(query_parts) if query_parts else "venture capital investors"
         
         # Build filters dictionary for Weaviate
-        weaviate_filters = {}
+        vector_filters = {}
         if sector:
-            weaviate_filters['sector'] = sector
+            vector_filters['sector'] = sector
         if location:
-            weaviate_filters['location'] = location
+            vector_filters['location'] = location
         if stage:
-            weaviate_filters['stage'] = stage
+            vector_filters['stage'] = stage
         if investor_type:
-            weaviate_filters['investor_type'] = investor_type
+            vector_filters['investor_type'] = investor_type
         
-        logger.info(f"Searching investors with query: {query}, filters: {weaviate_filters}")
+        logger.info(f"Searching investors with query: {query}, filters: {vector_filters}")
         
         # Search vector store with filters
         results = await vector_store_service.hybrid_search(
             "Investor",
             query=query,
             limit=limit,
-            filters=weaviate_filters if weaviate_filters else None
+            filters=vector_filters if vector_filters else None
         )
         
         if not results:
@@ -522,4 +522,3 @@ Provide a concise, factual summary."""
     except Exception as e:
         logger.error(f"Error fetching investor details: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error fetching investor details")
-
