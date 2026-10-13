@@ -177,11 +177,4 @@ This project follows PEP 8 style guidelines. Consider using:
 - `flake8` for linting
 - `mypy` for type checking
 
-### Testing
-
-(Add your testing framework and commands here)
-
-## License
-
-(Add your license here)
 
