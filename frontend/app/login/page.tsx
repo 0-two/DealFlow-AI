@@ -1,15 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { Chrome, Users, Building2, Loader, AlertTriangle } from 'lucide-react';
-import { supabase, signInWithGoogle, isSupabaseConfigured } from '@/lib/supabase';
+import { signInWithGoogle, isSupabaseConfigured } from '@/lib/supabase';
 
 type Step = 'role-select' | 'login';
 type Role = 'founder' | 'investor';
 
 export default function LoginPage() {
-  const router = useRouter();
   const [step, setStep] = useState<Step>('role-select');
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -127,7 +125,7 @@ export default function LoginPage() {
                 <Users className="w-8 h-8 text-indigo-600" />
               </div>
               <h2 className="text-2xl font-bold text-gray-900 mb-3">
-                I'm a Founder
+                I&apos;m a Founder
               </h2>
               <p className="text-gray-600 mb-6">
                 Upload your pitch deck, discover investors, and get AI-powered funding insights
@@ -154,7 +152,7 @@ export default function LoginPage() {
                 <Building2 className="w-8 h-8 text-purple-600" />
               </div>
               <h2 className="text-2xl font-bold text-gray-900 mb-3">
-                I'm an Investor
+                I&apos;m an Investor
               </h2>
               <p className="text-gray-600 mb-6">
                 Discover promising startups, analyze trends, and find investment opportunities

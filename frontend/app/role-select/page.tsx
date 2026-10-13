@@ -68,7 +68,7 @@ export default function RoleSelectPage() {
                 <Users className="w-8 h-8 text-indigo-600" />
               </div>
               <h2 className="text-2xl font-bold text-gray-900 mb-3">
-                I'm a Founder
+                I&apos;m a Founder
               </h2>
               <p className="text-gray-600 mb-6">
                 Upload your pitch deck or startup details to find investors who match your vision.
@@ -102,7 +102,7 @@ export default function RoleSelectPage() {
                 <Building2 className="w-8 h-8 text-purple-600" />
               </div>
               <h2 className="text-2xl font-bold text-gray-900 mb-3">
-                I'm an Investor
+                I&apos;m an Investor
               </h2>
               <p className="text-gray-600 mb-6">
                 Share your investment thesis and discover startups that align with your portfolio.

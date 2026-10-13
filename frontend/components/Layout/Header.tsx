@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { LanguageCode, LANGUAGES } from '@/lib/types';
-import { Menu, X, Sparkles, LogOut, Loader, Globe } from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import { LanguageCode } from '@/lib/types';
+import { Menu, X, Sparkles, LogOut } from 'lucide-react';
 import { useTranslationContext } from '@/contexts/TranslationContext';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -13,15 +13,11 @@ interface Props {
   onLanguageChange?: (lang: LanguageCode) => void; // deprecated
 }
 
-export default function Header({ selectedLanguage, onLanguageChange }: Props) {
+export default function Header(_props: Props) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const pathname = usePathname();
-  const router = useRouter();
-  const { session, profile, signOut: authSignOut, switchRole } = useAuth();
-  const { t, changeLanguage } = useTranslationContext();
-  
-  // Use context language if no prop provided
-  const currentLang = selectedLanguage;
+  const { profile, switchRole } = useAuth();
+  const { t } = useTranslationContext();
 
   const userRole = profile?.role;
 
@@ -57,18 +53,6 @@ export default function Header({ selectedLanguage, onLanguageChange }: Props) {
       await switchRole();
     } catch (error) {
       console.error('Switch role error:', error);
-    }
-  };
-
-  const handleLanguageChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newLang = e.target.value as LanguageCode;
-    
-    // Call context handler
-    await changeLanguage(newLang);
-    
-    // Also call prop handler if provided
-    if (onLanguageChange) {
-      onLanguageChange(newLang);
     }
   };
 

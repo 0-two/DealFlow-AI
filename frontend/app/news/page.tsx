@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Header from '@/components/Layout/Header';
 import ProtectedRoute from '@/components/Auth/ProtectedRoute';
 import { LanguageCode } from '@/lib/types';
-import { Newspaper, ChevronDown, ChevronUp, ExternalLink, Globe2, Loader2, MessageCircle } from 'lucide-react';
+import { ChevronDown, ChevronUp, ExternalLink, Globe2, Loader2, MessageCircle } from 'lucide-react';
 import { queryAPI } from '@/lib/api';
 
 type WebResult = {
