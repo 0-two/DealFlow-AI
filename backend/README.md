@@ -5,8 +5,8 @@ FastAPI backend for AI-powered deal flow management and analysis using RAG (Retr
 ## Features
 
 - **RAG Pipeline**: Document ingestion, vectorization, retrieval, and generation
-- **Vector Storage**: Weaviate integration for semantic search
-- **LLM Integration**: Google Generative AI (Gemini) for question answering
+- **Vector Storage**: Qdrant integration for semantic search
+- **LLM Integration**: OpenRouter for model-configurable question answering
 - **Document Processing**: Support for PDF, TXT, DOCX, and Markdown files
 - **RESTful API**: FastAPI-based API with comprehensive endpoints
 - **Investor Search**: Specialized endpoints for investor data
@@ -58,8 +58,8 @@ backend/
 ### Prerequisites
 
 - Python 3.9+
-- Weaviate instance (local or cloud)
-- Google API key for Generative AI
+- Qdrant instance (Qdrant Cloud or self-hosted)
+- OpenRouter API key
 
 ### Installation
 
@@ -87,15 +87,21 @@ cp .env.example .env  # On Windows: copy .env.example .env
 ```
 
 5. Configure your `.env` file with:
-   - `GOOGLE_API_KEY`: Your Google Generative AI API key
-   - `WEAVIATE_URL`: Your Weaviate instance URL
-   - `WEAVIATE_API_KEY`: Your Weaviate API key (if required)
+   - `OPENROUTER_API_KEY`: Your OpenRouter API key
+   - `OPENROUTER_MODEL`: A current OpenRouter model ID, preferably a `:free` model for demos
+   - `QDRANT_URL`: Your Qdrant Cloud or self-hosted URL
+   - `QDRANT_API_KEY`: Your Qdrant API key, if required
    - Other configuration as needed
 
-6. Initialize Weaviate collection (optional, will be created automatically):
-```bash
-python -c "from app.services.vector_store_service import VectorStoreService; import asyncio; asyncio.run(VectorStoreService().initialize_collection())"
-```
+6. Qdrant collections are created automatically at backend startup. The local
+   embedding model `sentence-transformers/all-MiniLM-L6-v2` is downloaded on
+   first startup and produces 384-dimensional vectors. Existing vectors from a
+   previous provider must be re-ingested.
+
+For a free OpenRouter demo, `OPENROUTER_MODEL=openrouter/free` lets OpenRouter
+select an available free model. Free models have shared rate limits and can
+change availability; set a specific current model ID when you need predictable
+behavior.
 
 ## Running the Application
 
@@ -184,4 +190,3 @@ This project follows PEP 8 style guidelines. Consider using:
 ## License
 
 (Add your license here)
-
