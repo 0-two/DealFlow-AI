@@ -163,8 +163,3 @@ DealFlow-AI/
 ├── Dataset/       Local-only datasets (ignored by Git)
 └── README.md      Project documentation
 ```
-
-## License
-
-This project is intended for educational and portfolio use. Add an explicit license
-before distributing it as a library or commercial product.
