@@ -2,7 +2,7 @@
 Enhanced LLM Service with Intelligent Hybrid RAG
 Combines document retrieval with general knowledge for better responses
 """
-import google.generativeai as genai
+from openai import AsyncOpenAI
 from typing import List, Dict, Optional, AsyncIterator
 import logging
 import asyncio
@@ -17,28 +17,20 @@ class LLMService:
     """Enhanced service for intelligent LLM interactions"""
     
     def __init__(self):
-        """Initialize LLM service with Gemini model"""
+        """Initialize the OpenRouter chat client."""
         try:
-            if not settings.GOOGLE_API_KEY:
-                raise ValueError("GOOGLE_API_KEY not configured in settings")
-            
-            genai.configure(api_key=settings.GOOGLE_API_KEY)
-            
-            logger.info(f"Initializing LLM service with model: {settings.GEMINI_MODEL}")
-            
-            # Added top_k and lowered temperature slightly for better formatting stability
-            self.model = genai.GenerativeModel(
-                model_name=settings.GEMINI_MODEL,
-                generation_config={
-                    "temperature": 0.25,  # Lowered for more structured output
-                    "max_output_tokens": settings.MAX_TOKENS,
-                    "top_p": 0.9,
-                    "top_k": 40,         # Added for token selection stability
-                }
+            if not settings.OPENROUTER_API_KEY:
+                raise ValueError("OPENROUTER_API_KEY not configured in settings")
+
+            self.client = AsyncOpenAI(
+                api_key=settings.OPENROUTER_API_KEY,
+                base_url=settings.OPENROUTER_BASE_URL,
+                default_headers={
+                    "HTTP-Referer": settings.OPENROUTER_SITE_URL,
+                    "X-Title": settings.OPENROUTER_APP_NAME,
+                },
             )
-            
-            logger.info("✅ LLM service initialized successfully")
-            
+            logger.info("LLM service initialized with OpenRouter model: %s", settings.OPENROUTER_MODEL)
         except Exception as e:
             logger.error(f"Error initializing LLM service: {str(e)}", exc_info=True)
             raise
@@ -80,10 +72,6 @@ class LLMService:
                 "language": language
             }
         
-        # Handle simple conversational queries
-        if self._is_simple_conversational_query(query):
-            return await self._generate_simple_response(query, language)
-        
         try:
             # Check context relevance
             context_quality = self._assess_context_quality(query, context, sources)
@@ -107,14 +95,6 @@ class LLMService:
                 "sources": [],
                 "language": language
             }
-        
-            # Refuse out-of-domain questions early
-            if self._is_out_of_domain_query(query):
-                refusal = (
-                    "I'm specialized in startup funding and entrepreneurship. "
-                    "This question is outside my scope of expertise. Please ask me about startups, investors, funding, or government schemes."
-                )
-                return {"answer": refusal, "sources": [], "language": language, "mode": "refusal"}
     
     def _assess_context_quality(self, query: str, context: str, sources: List[Dict]) -> int:
         """Assess if retrieved context is relevant to the query"""
@@ -157,10 +137,10 @@ class LLMService:
 
             SCOPE: You ONLY answer questions about startups, funding, investors, government schemes, business, entrepreneurship, and related topics in India.
             
-            CRITICAL RULE: If the question is NOT related to startups, funding, investors, government schemes, or entrepreneurship, you MUST refuse to answer.
-            Say: "I'm specialized in startup funding and entrepreneurship. This question is outside my scope of expertise. Please ask me about startups, investors, funding, or government schemes."
-            
-            Do NOT answer questions about weapons, firearms, cooking, sports, movies, or any unrelated topics.
+            GUARDRAILS: Decide whether the request is within the startup, funding,
+            investor, business, entrepreneurship, or government-scheme domain. For
+            unrelated, unsafe, illegal, or harmful requests, refuse briefly in your
+            own words and suggest a relevant question instead.
 
             TASK: Answer only using the provided context documents. 
             
@@ -181,7 +161,7 @@ class LLMService:
         """).strip()
         
         try:
-            response = await self._call_gemini(prompt, temperature=0.25)
+            response = await self._call_llm(prompt, temperature=0.25)
             cited_sources = self._extract_citations(response, sources)
             return {"answer": response, "sources": cited_sources, "language": language, "mode": "rag"}
         except Exception as e:
@@ -198,10 +178,10 @@ class LLMService:
 
             SCOPE: You ONLY answer questions about startups, funding, investors, government schemes, business, entrepreneurship, and related topics in India.
             
-            CRITICAL RULE: If the question is NOT related to startups, funding, investors, government schemes, or entrepreneurship, you MUST refuse to answer.
-            Say: "I'm specialized in startup funding and entrepreneurship. This question is outside my scope of expertise. Please ask me about startups, investors, funding, or government schemes."
-            
-            Do NOT answer questions about weapons, firearms, cooking, sports, movies, or any unrelated topics.
+            GUARDRAILS: Decide whether the request is within the startup, funding,
+            investor, business, entrepreneurship, or government-scheme domain. For
+            unrelated, unsafe, illegal, or harmful requests, refuse briefly in your
+            own words and suggest a relevant question instead.
 
             USER QUESTION: {query}
 
@@ -221,7 +201,7 @@ class LLMService:
         """).strip()
         
         try:
-            response = await self._call_gemini(prompt, temperature=0.3)
+            response = await self._call_llm(prompt, temperature=0.3)
             cited_sources = self._extract_citations(response, sources) if sources else []
             return {"answer": response, "sources": cited_sources[:5], "language": language, "mode": "hybrid"}
         except Exception as e:
@@ -236,10 +216,10 @@ class LLMService:
 
             SCOPE: You ONLY answer questions about startups, funding, investors, government schemes, business, entrepreneurship, and related topics in India.
             
-            CRITICAL RULE: If the question is NOT related to startups, funding, investors, government schemes, or entrepreneurship, you MUST refuse to answer.
-            Say: "I'm specialized in startup funding and entrepreneurship. This question is outside my scope of expertise. Please ask me about startups, investors, funding, or government schemes."
-            
-            Do NOT answer questions about weapons, firearms, cooking, sports, movies, or any unrelated topics.
+            GUARDRAILS: Decide whether the request is within the startup, funding,
+            investor, business, entrepreneurship, or government-scheme domain. For
+            unrelated, unsafe, illegal, or harmful requests, refuse briefly in your
+            own words and suggest a relevant question instead.
 
             USER QUESTION: {query}
 
@@ -252,99 +232,101 @@ class LLMService:
         """).strip()
         
         try:
-            response = await self._call_gemini(prompt, temperature=0.5)
+            response = await self._call_llm(prompt, temperature=0.5)
             return {"answer": response, "sources": [], "language": language, "mode": "general"}
         except Exception as e:
             logger.error(f"General knowledge error: {e}")
             return {"answer": "Error generating response.", "sources": [], "language": language}
     
-    async def _call_gemini(self, prompt: str, temperature: float = 0.4) -> str:
-        """Call Gemini API with error handling"""
+    async def _call_llm(self, prompt: str, temperature: float = 0.4) -> str:
+        """Call OpenRouter with error handling."""
         try:
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: self.model.generate_content(
-                    prompt,
-                    generation_config={
-                        "temperature": temperature,
-                        "max_output_tokens": settings.MAX_TOKENS,
-                    }
-                )
+            response = await self.client.chat.completions.create(
+                model=settings.OPENROUTER_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temperature,
+                max_tokens=settings.MAX_TOKENS,
             )
-            
-            if not response or not hasattr(response, 'text') or not response.text:
-                raise ValueError("Empty response from Gemini")
-            
-            return response.text.strip()
-            
+            content = response.choices[0].message.content if response.choices else None
+            if not content:
+                raise ValueError("Empty response from OpenRouter")
+            return content.strip()
         except Exception as e:
-            logger.error(f"Gemini API error: {e}")
+            logger.error(f"OpenRouter API error: {e}")
             raise
 
     async def stream_answer(self, query: str, context: str, sources: List[Dict], language: str = "en") -> AsyncIterator[str]:
         """Stream answer with cleaned prompts. Returns metadata about expertise."""
-        # Conversational fast path
-        if self._is_simple_conversational_query(query):
-            simple = (await self._generate_simple_response(query, language)).get("answer", "Hello")
-            yield simple
-            return
-
         formatted_sources = self._format_sources(sources)
         context_quality = self._assess_context_quality(query, context, sources)
         
         # Select Prompt based on quality
         if context_quality >= 7:
             prompt = textwrap.dedent(f"""
-                You are an expert startup funding advisor.
+                You are an expert startup funding advisor and conversational assistant.
                 Answer in this language: {language}
+
+                GUARDRAILS: Answer only questions related to startups, entrepreneurship,
+                investors, fundraising, business, or government schemes. For unrelated,
+                unsafe, illegal, or harmful requests, briefly explain that you cannot help
+                and suggest a relevant startup or funding topic instead. Decide this from
+                the user's actual request; do not use a hardcoded response.
                 
                 CONTEXT: {context}
                 SOURCES: {formatted_sources}
                 USER QUESTION: {query}
                 
-                Strictly format with Markdown. Ensure newlines before headers.
+                Return clean Markdown. Use a blank line before headings, standard
+                Markdown bullets, and normal word spacing. Never insert spaces inside
+                words. Answer greetings and casual messages naturally using the model.
             """).strip()
             temp = 0.25
         elif context_quality >= 4:
             prompt = textwrap.dedent(f"""
-                You are an expert startup funding advisor.
+                You are an expert startup funding advisor and conversational assistant.
                 Answer in this language: {language}
+
+                GUARDRAILS: Answer only questions related to startups, entrepreneurship,
+                investors, fundraising, business, or government schemes. For unrelated,
+                unsafe, illegal, or harmful requests, briefly explain that you cannot help
+                and suggest a relevant startup or funding topic instead. Decide this from
+                the user's actual request; do not use a hardcoded response.
                 
                 CONTEXT: {context}
                 SOURCES: {formatted_sources}
                 USER QUESTION: {query}
                 
-                Combine context and general knowledge. Strictly format with Markdown.
+                Combine context and general knowledge. Return clean Markdown with normal
+                word spacing and blank lines around headings. Answer casual messages
+                naturally using the model.
             """).strip()
-            temp = 0.25
+            temp = 0.3
         else:
             prompt = textwrap.dedent(f"""
-                You are an expert startup funding advisor.
+                You are an expert startup funding advisor and conversational assistant.
                 Answer in this language: {language}
+
+                GUARDRAILS: Answer only questions related to startups, entrepreneurship,
+                investors, fundraising, business, or government schemes. For unrelated,
+                unsafe, illegal, or harmful requests, briefly explain that you cannot help
+                and suggest a relevant startup or funding topic instead. Decide this from
+                the user's actual request; do not use a hardcoded response.
                 USER QUESTION: {query}
                 
-                Strictly format with Markdown. Ensure newlines before headers.
+                Return clean Markdown with normal word spacing and blank lines around
+                headings. Answer casual messages naturally using the model.
             """).strip()
-            temp = 0.25
+            temp = 0.5
 
         # Stream the response
         try:
-            async for token in self._stream_gemini(prompt, temperature=temp):
+            async for token in self._stream_llm(prompt, temperature=temp):
                 # Note: We cannot easily regex clean a stream in real-time without buffering
                 # So we rely on the improved prompt structure here.
                 yield token
         except Exception as e:
             yield f"[stream_error] {str(e)}"
 
-            # Refuse out-of-domain questions early (no sources should be sent by caller)
-            if self._is_out_of_domain_query(query):
-                refusal = (
-                    "I'm specialized in startup funding and entrepreneurship. "
-                    "This question is outside my scope of expertise. Please ask me about startups, investors, funding, or government schemes."
-                )
-                yield refusal
-                return
 
     def _is_out_of_expertise(self, answer: str) -> bool:
         """
@@ -406,76 +388,21 @@ class LLMService:
         
         return False
 
-    def _is_out_of_domain_query(self, query: str) -> bool:
-        """Heuristic to detect queries outside startup/funding domain using the query text."""
-        if not query or not query.strip():
-            return True
-        q = query.lower()
-        # Strong out-of-domain indicators
-        negative_keywords = [
-            'gun', 'guns', 'weapon', 'weapons', 'glock', 'rifle', 'pistol', 'knife',
-            'cook', 'cooking', 'recipe', 'bake', 'baking', 'cake', 'bread', 'kitchen',
-            'football', 'cricket', 'soccer', 'basketball', 'tennis', 'sport', 'sports',
-            'movie', 'movies', 'film', 'films', 'actor', 'actress', 'celebrity',
-            'song', 'music', 'guitar', 'piano', 'lyrics',
-            'weather', 'temperature', 'forecast',
-        ]
-        for word in negative_keywords:
-            if word in q:
-                return True
-        # If it has at least one domain keyword, consider in-domain
-        domain_keywords = [
-            'startup', 'investor', 'funding', 'vc', 'venture capital', 'seed',
-            'series a', 'series b', 'equity', 'founder', 'entrepreneur', 'business',
-            'investment', 'angel', 'accelerator', 'incubator', 'government scheme',
-            'grant', 'loan', 'fintech', 'edtech', 'saas', 'valuation', 'unicorn',
-            'ipo', 'pitch', 'pitch deck', 'market', 'revenue', 'capital', 'term sheet',
-        ]
-        if any(k in q for k in domain_keywords):
-            return False
-        # Default conservative: treat as out-of-domain if no domain keyword present
-        return True
-
-    async def _stream_gemini(self, prompt: str, temperature: float = 0.4) -> AsyncIterator[str]:
-        """Stream tokens from Gemini"""
-        loop = asyncio.get_event_loop()
-        queue: asyncio.Queue = asyncio.Queue()
-        SENTINEL = object()
-
-        def worker():
-            try:
-                response = self.model.generate_content(
-                    prompt,
-                    generation_config={
-                        "temperature": temperature,
-                        "max_output_tokens": settings.MAX_TOKENS,
-                    },
-                    stream=True,
-                )
-                for chunk in response:
-                    try:
-                        text = getattr(chunk, 'text', None)
-                        if text:
-                            loop.call_soon_threadsafe(queue.put_nowait, text)
-                    except Exception:
-                        continue
-            except Exception as e:
-                loop.call_soon_threadsafe(queue.put_nowait, f"[stream_error] {str(e)}")
-            finally:
-                loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
-
-        loop.run_in_executor(None, worker)
-
-        while True:
-            item = await queue.get()
-            if item is SENTINEL:
-                break
-            yield str(item)
-    
-    # ... (Keep the remaining helper methods: _format_sources, _extract_citations, 
-    # _is_simple_conversational_query, _generate_simple_response, 
-    # generate_investor_recommendation, analyze_funding_trends, _format_deals_data, 
-    # _format_investors, generate_simple_response as they were in your original code) ...
+    async def _stream_llm(self, prompt: str, temperature: float = 0.4) -> AsyncIterator[str]:
+        """Stream tokens from OpenRouter."""
+        response = await self.client.chat.completions.create(
+            model=settings.OPENROUTER_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
+            max_tokens=settings.MAX_TOKENS,
+            stream=True,
+        )
+        async for chunk in response:
+            if not chunk.choices:
+                continue
+            text = chunk.choices[0].delta.content
+            if text:
+                yield text
     
     def _format_sources(self, sources: List[Dict]) -> str:
         if not sources: return "No sources available."
@@ -494,23 +421,9 @@ class LLMService:
                 cited.append(source)
         return cited if cited else sources[:3]
 
-    def _is_simple_conversational_query(self, query: str) -> bool:
-        simple_queries = ["hi", "hello", "hey", "how are you", "thanks", "bye"]
-        query_lower = query.lower().strip().rstrip('?!.')
-        if query_lower in simple_queries: return True
-        return False
-
-    async def _generate_simple_response(self, query: str, language: str) -> Dict:
-        return {
-            "answer": "Hello! I'm your startup funding advisor. Ask me about investors, funding, or government schemes.",
-            "sources": [],
-            "language": language,
-            "mode": "conversational"
-        }
-    
     async def generate_simple_response(self, prompt: str) -> str:
         try:
-            response = await self._call_gemini(prompt, temperature=0.5)
+            response = await self._call_llm(prompt, temperature=0.5)
             return response
         except Exception:
             return ""

@@ -38,9 +38,12 @@ export const queryAPI = {
       const parts = buffer.split('\n\n');
       buffer = parts.pop() || '';
       for (const part of parts) {
-        const line = part.trim();
+        const line = part.split('\n').find((entry) => entry.startsWith('data:')) || '';
         if (!line.startsWith('data:')) continue;
-        const data = line.slice(5).trim();
+        // Remove only the optional SSE delimiter space. Preserve whitespace
+        // emitted by the model because it is meaningful between tokens.
+        const rawData = line.slice(5);
+        const data = rawData.startsWith(' ') ? rawData.slice(1) : rawData;
         if (!data) continue;
         // Try to parse JSON event
         if (data.startsWith('{')) {

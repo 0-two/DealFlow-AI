@@ -6,6 +6,11 @@ Intelligently filters and structures data for Weaviate - for Investor Discovery
 import pandas as pd
 import asyncio
 import logging
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from app.services.vector_store_service import vector_store_service
 from app.services.embedding_service import embedding_service
 import re
@@ -503,12 +508,18 @@ async def main():
     
     # Try multiple possible CSV paths
     possible_paths = [
-        # Absolute path
-        "D:\\AI-Verse Hackathon\\Dataset\\Ramp's Airtable database\\Company Database-Grid view.csv",
-        # Relative path from backend
-        "../../Dataset/Ramp's Airtable database/Company Database-Grid view.csv",
-        # Relative path with spaces
-        "../../Dataset/Rampa Airtable database/Company Database-Grid view.csv",
+        str(
+            Path(__file__).resolve().parents[2]
+            / "Dataset"
+            / "Ramp's Airtable database"
+            / "Company Database-Grid view.csv"
+        ),
+        str(
+            Path(__file__).resolve().parents[2]
+            / "Dataset"
+            / "archive"
+            / "Listofstartups.csv"
+        ),
     ]
     
     csv_path = None

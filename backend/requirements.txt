@@ -2,13 +2,14 @@ fastapi
 uvicorn[standard]
 python-dotenv
 langchain
-langchain-google-generativeai
 langgraph
-weaviate-client
-google-generativeai
+qdrant-client
+openai
+sentence-transformers
 requests
 httpx
 pydantic
+pydantic-settings
 python-multipart
 aiohttp
 pandas
@@ -25,8 +26,8 @@ transformers
 sentencepiece
 sacremoses
 indictrans2
+indictranstoolkit
 
 # Additional utilities
 PyPDF2
 pillow
-

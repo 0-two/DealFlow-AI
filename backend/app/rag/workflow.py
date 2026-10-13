@@ -34,11 +34,6 @@ def is_simple_conversational_query(query: str) -> bool:
     if query_lower in SIMPLE_CONVERSATIONAL_PATTERNS:
         return True
     
-    # Check if query starts with simple patterns
-    for pattern in SIMPLE_CONVERSATIONAL_PATTERNS:
-        if query_lower.startswith(pattern):
-            return True
-    
     # Very short queries (1-2 words, ≤15 chars) are likely conversational
     words = query_lower.split()
     if len(words) <= 2 and len(query_lower) <= 15:
@@ -242,25 +237,6 @@ class RAGWorkflow:
             original_query = state["original_query"]
             docs = state["reranked_docs"]
             
-            # Check if this is a simple conversational query - return no sources
-            if is_simple_conversational_query(original_query) or is_simple_conversational_query(query):
-                logger.info("Generating conversational response without sources")
-                result = await llm_service.generate_answer(
-                    query=query,
-                    context="",
-                    sources=[],
-                    language="en"
-                )
-                state["answer"] = result.get("answer", "Hello! How can I help you with startup funding today?")
-                state["sources"] = []  # No sources for conversational queries
-                state["context"] = ""
-                state["metadata"] = {
-                    "query_type": "conversational",
-                    "answer_type": "simple_response",
-                    "documents_used": 0
-                }
-                return state
-            
             # Build context from documents
             context_parts = []
             sources = []
@@ -419,4 +395,3 @@ class RAGWorkflow:
 
 # Create workflow instance
 rag_workflow = RAGWorkflow()
-

@@ -27,7 +27,7 @@ query_semaphore = asyncio.Semaphore(MAX_CONCURRENT_QUERIES)
 
 class QueryRequest(BaseModel):
     """Query request model with validation"""
-    query: str = Field(..., min_length=3, max_length=2000, description="User query string")
+    query: str = Field(..., min_length=1, max_length=2000, description="User query string")
     language: Optional[str] = Field(None, description="Preferred response language code")
     filters: Optional[Dict[str, Any]] = Field(None, description="Optional filters for document retrieval")
     
@@ -36,8 +36,6 @@ class QueryRequest(BaseModel):
         """Validate query is not empty after stripping"""
         if not v or not v.strip():
             raise ValueError("Query cannot be empty")
-        if len(v.strip()) < 3:
-            raise ValueError("Query must be at least 3 characters long")
         return v.strip()
 
 
@@ -242,39 +240,24 @@ async def process_query_stream(request: QueryRequest):
             except Exception as e:
                 logger.error(f"Language detection failed: {e}, defaulting to 'en'")
                 detected_lang = "en"
-            
-            # Out-of-domain short-circuit without retrieval or sources
-            try:
-                if llm_service and hasattr(llm_service, "_is_out_of_domain_query") and llm_service._is_out_of_domain_query(query):
-                    refusal = (
-                        "I'm specialized in startup funding and entrepreneurship. "
-                        "This question is outside my scope of expertise. Please ask me about startups, investors, funding, or government schemes."
-                    )
-                    yield f"data: {refusal}\n\n"
-                    final_meta = {
-                        "type": "final",
-                        "language": detected_lang,
-                        "metadata": {"documents_used": 0, "processing_ms": int((time.time()-route_start)*1000)}
-                    }
-                    import json
-                    yield f"data: {json.dumps(final_meta)}\n\n"
-                    return
-            except Exception:
-                pass
 
-            # Conversational short-circuit without retrieval
+            # Casual messages are still answered by the real LLM, but do not
+            # spend time searching Qdrant or Tavily for irrelevant references.
             if is_simple_conversational_query(query):
-                async for token in llm_service.stream_answer(query=query, context="", sources=[], language=detected_lang):
+                full_answer = ""
+                async for token in llm_service.stream_answer(
+                    query=query,
+                    context="",
+                    sources=[],
+                    language=detected_lang,
+                ):
                     yield f"data: {token}\n\n"
-                final_meta = {
-                    "type": "final",
-                    "language": detected_lang,
-                    "metadata": {"documents_used": 0, "processing_ms": int((time.time()-route_start)*1000)}
-                }
-                import json
-                yield f"data: {json.dumps(final_meta)}\n\n"
-                return
+                    full_answer += token
 
+                import json
+                yield f"data: {json.dumps({'type': 'final', 'language': detected_lang, 'metadata': {'documents_used': 0, 'web_sources_count': 0, 'processing_ms': int((time.time() - route_start) * 1000)}})}\n\n"
+                return
+            
             # Parallel retrieval with limits
             per_collection = max(1, min(settings.RETRIEVAL_PER_COLLECTION, settings.TOP_K_RETRIEVAL))
             investors_task = vector_store_service.hybrid_search("Investor", query, limit=per_collection)
@@ -660,4 +643,3 @@ async def verification_status() -> Dict[str, Any]:
         ] if tavily_service.enabled else [],
         "message": "Source verification is available" if tavily_service.enabled else "TAVILY_API_KEY not configured"
     }
-

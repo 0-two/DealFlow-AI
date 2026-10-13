@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { queryAPI } from '@/lib/api';
-import { Message, LanguageCode } from '@/lib/types';
+import { Message } from '@/lib/types';
 import Header from '@/components/Layout/Header';
 import ProtectedRoute from '@/components/Auth/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
@@ -12,7 +12,6 @@ import { Sparkles } from 'lucide-react';
 
 function ChatPageContent() {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [selectedLanguage] = useState<LanguageCode>('en');
   const { profile } = useAuth();
   const userRole = profile?.role;
   const storageKey = useMemo(() => `chatMessages_${userRole || 'default'}`, [userRole]);
@@ -66,16 +65,12 @@ function ChatPageContent() {
     await queryAPI.askStream(
       { query, language: 'auto' }, // Let backend detect and respond in same language
       (chunk) => {
-        // Ensure proper spacing between chunks
+        // Streaming chunks already contain the model's whitespace. Adding spaces
+        // here corrupts words when a provider splits a token mid-word.
         setMessages((prev) => prev.map(m => {
           if (m.id === streamId) {
             const currentContent = m.content;
-            // Add space before chunk if needed (not at start, not after space, not before punctuation)
-            const needsSpace = currentContent.length > 0 && 
-                             !currentContent.endsWith(' ') && 
-                             !currentContent.endsWith('\n') &&
-                             !/^[.,!?;:]/.test(chunk);
-            return { ...m, content: currentContent + (needsSpace ? ' ' : '') + chunk };
+            return { ...m, content: currentContent + chunk };
           }
           return m;
         }));

@@ -1,6 +1,5 @@
 import torch
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
-from IndicTransToolkit import IndicProcessor
 from huggingface_hub import login
 import logging
 from typing import Optional, Dict
@@ -90,6 +89,7 @@ class IndicTrans2Service:
                 
                 # Initialize processor
                 if self.ip is None:
+                    from IndicTransToolkit import IndicProcessor
                     self.ip = IndicProcessor(inference=True)
                 
                 logger.info("✅ English to Indic model loaded successfully")
@@ -115,6 +115,7 @@ class IndicTrans2Service:
                 
                 # Initialize processor
                 if self.ip is None:
+                    from IndicTransToolkit import IndicProcessor
                     self.ip = IndicProcessor(inference=True)
                 
                 logger.info("✅ Indic to English model loaded successfully")

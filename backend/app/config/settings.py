@@ -9,13 +9,15 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
     
     # API Keys
-    GOOGLE_API_KEY: str
+    OPENROUTER_API_KEY: str
     LLAMA_CLOUD_API_KEY: str  # NEW: For LlamaParse
     HUGGINGFACE_HUB_TOKEN: str  # NEW: For IndicTrans2 models
     GROQ_API_KEY: Optional[str] = None
     TAVILY_API_KEY: str
-    WEAVIATE_URL: str
-    WEAVIATE_API_KEY: str
+    QDRANT_URL: str
+    QDRANT_API_KEY: Optional[str] = None
+    QDRANT_TIMEOUT_SECONDS: int = 30
+    QDRANT_UPSERT_BATCH_SIZE: int = 64
     JINA_API_KEY: str
     
     # IndicTrans2 Settings (NEW)
@@ -23,8 +25,12 @@ class Settings(BaseSettings):
     INDICTRANS2_DEVICE: str = "cuda"  # or "cpu"
 
     # Model Settings
-    GEMINI_MODEL: str = "gemini-2.0-flash-exp"
-    EMBEDDING_MODEL: str = "models/text-embedding-004"
+    OPENROUTER_MODEL: str = "openrouter/free"
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    OPENROUTER_SITE_URL: str = "http://localhost:3000"
+    OPENROUTER_APP_NAME: str = "DealFlow AI"
+    LOCAL_EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
+    EMBEDDING_BATCH_SIZE: int = 32
     TEMPERATURE: float = 0.3
     MAX_TOKENS: int = 2048
 
@@ -56,6 +62,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"
 
 
 settings = Settings()

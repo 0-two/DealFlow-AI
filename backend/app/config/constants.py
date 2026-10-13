@@ -31,7 +31,7 @@ BHASHINI_API_ENDPOINTS = {
 }
 
 # Weaviate Collection Names
-WEAVIATE_COLLECTIONS = {
+QDRANT_COLLECTIONS = {
     "deals": "Deal",
     "investors": "Investor",
     "documents": "Document",
