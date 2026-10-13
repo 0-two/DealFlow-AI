@@ -13,6 +13,10 @@ from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 import logging
 import os
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import sys
 from huggingface_hub import login
 
 # Add the backend directory to Python path

@@ -6,6 +6,11 @@ Intelligently filters and structures data for Weaviate
 import pandas as pd
 import asyncio
 import logging
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from app.services.vector_store_service import vector_store_service
 from app.services.embedding_service import embedding_service
 import re
@@ -310,7 +315,12 @@ async def main():
     """Main ingestion pipeline"""
     
     # Path to your CSV file
-    csv_path = "D:\\AI-Verse Hackathon\\Dataset\\Ramp's Airtable database\\Fund Database-Ramp's VC & Angel Email Database.csv"
+    csv_path = str(
+        Path(__file__).resolve().parents[2]
+        / "Dataset"
+        / "Ramp's Airtable database"
+        / "Fund Database-Ramp's VC & Angel Email Database.csv"
+    )
     
     logger.info("="*60)
     logger.info("🚀 INVESTOR DATA INGESTION PIPELINE")

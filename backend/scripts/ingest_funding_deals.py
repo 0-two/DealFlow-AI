@@ -7,7 +7,12 @@ import pandas as pd
 import asyncio
 import logging
 import os
+import sys
+from pathlib import Path
 from datetime import datetime
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from app.services.vector_store_service import vector_store_service
 from app.services.embedding_service import embedding_service
 
@@ -360,7 +365,12 @@ class FundingDealIngestion:
 
 async def main():
     """Main entry point"""
-    csv_path = "D:\\AI-Verse Hackathon\\Dataset\\Ramp's Airtable database\\Company Database-Grid view.csv"
+    csv_path = str(
+        Path(__file__).resolve().parents[2]
+        / "Dataset"
+        / "Ramp's Airtable database"
+        / "Company Database-Grid view.csv"
+    )
     
     ingestion = FundingDealIngestion(csv_path)
     await ingestion.run()
